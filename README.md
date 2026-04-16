@@ -1,68 +1,33 @@
-# Agent Control Plane
+# Shiro
 
-Telegram bot that lets you approve/deny permission requests and monitor status of local **Claude Code** and **OpenAI Codex** sessions from your phone.
+Your personal bridge between phone and laptop.
 
-Why: when you run multiple agent sessions and step away from the laptop, they block on permission prompts. This bridges those prompts to Telegram so you can unblock them from anywhere.
+Shiro is a Telegram bot that lets you monitor and control things running on your laptop from anywhere. Today it handles **Claude Code** and **OpenAI Codex** approval requests — step away from your laptop, and your phone will ping you when a session needs permission so you can approve or deny with a tap. More capabilities coming.
 
-## Architecture
+## Why
 
-```
-┌────────────────┐       HTTP (held open)       ┌──────────────────┐
-│  Claude Code   │ ───────────────────────────▶ │                  │
-│   (hook)       │ ◀─ allow/deny JSON ────────  │   Control Plane  │
-└────────────────┘                              │   (this repo)    │
-                                                │                  │
-┌────────────────┐   codex-hook.sh → curl ─────▶│  HTTP :7777      │
-│     Codex      │ ◀─ permissionDecision ────── │  + grammY bot    │
-│  (PreToolUse)  │                              └────────┬─────────┘
-└────────────────┘                                       │
-                                                         ▼
-                                                    Telegram
-                                                     (your phone)
-```
+You start an agent running. You walk away to grab food / go to the gym / take the dog out. The agent hits a permission prompt and just sits there, blocked, until you're back in front of your laptop. Shiro fixes that.
 
-Single TypeScript process. HTTP connection is held open until you tap Approve/Deny — no polling, no database.
-
-## Setup
-
-### 1. Create the Telegram bot
-
-1. Open Telegram and message [@BotFather](https://t.me/BotFather).
-2. Send `/newbot`, follow the prompts, and copy the **bot token**.
-3. Send any message to your new bot (this creates a chat with it).
-4. Visit `https://api.telegram.org/bot<TOKEN>/getUpdates` in your browser.
-5. Find `"chat":{"id": <number>, ...}` in the JSON — that number is your **chat ID**.
-
-### 2. Configure environment
+## Quick start
 
 ```bash
 cp .env.example .env
-```
-
-Fill in:
-
-```
-TELEGRAM_BOT_TOKEN=<from BotFather>
-TELEGRAM_CHAT_ID=<your chat ID>
-HTTP_PORT=7777
-```
-
-### 3. Install and start
-
-```bash
+# Fill in TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
 npm install
 npm run dev
 ```
 
-You should see:
+Then hook up whichever agent(s) you use — see below.
 
-```
-HTTP server listening on http://127.0.0.1:7777
-Telegram bot started as @your_bot_name
-Control plane ready.
-```
+## Setting up the Telegram bot
 
-### 4. Hook up Claude Code
+1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, follow the prompts, and copy the **bot token**.
+2. Send any message to your new bot (this creates your chat with it).
+3. Visit `https://api.telegram.org/bot<TOKEN>/getUpdates` in your browser.
+4. Find `"chat":{"id": <number>` in the JSON response — that's your **chat ID**.
+5. Put both values in `.env`.
+
+## Claude Code
 
 Add to `~/.claude/settings.json`:
 
@@ -85,9 +50,9 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-That's it. The next time Claude Code needs permission, you'll get a Telegram message.
+Open a new Claude Code session and the hook will route permission requests to Telegram.
 
-### 5. Hook up Codex
+## Codex
 
 Enable hooks in `~/.codex/config.toml`:
 
@@ -96,7 +61,7 @@ Enable hooks in `~/.codex/config.toml`:
 codex_hooks = true
 ```
 
-Create `~/.codex/hooks.json`:
+Create `~/.codex/hooks.json` (update the path to match where you cloned Shiro):
 
 ```json
 {
@@ -106,7 +71,7 @@ Create `~/.codex/hooks.json`:
       "hooks": [
         {
           "type": "command",
-          "command": "/Users/adityasriram/Labs/stanford/cs440lx/telegram-bot/hooks/codex-hook.sh",
+          "command": "/absolute/path/to/shiro/hooks/codex-hook.sh",
           "timeout": 180,
           "statusMessage": "Waiting for Telegram approval..."
         }
@@ -116,48 +81,43 @@ Create `~/.codex/hooks.json`:
 }
 ```
 
-The shell bridge auto-approves read-only commands (`ls`, `cat`, `git status`, etc.) locally so Telegram only pings you for things that actually matter.
+The shell bridge auto-approves common read-only commands (`ls`, `cat`, `git status`, etc.) locally, so Telegram only pings you for commands that actually matter.
 
-## Telegram Commands
+## Telegram commands
 
 | Command | What it does |
 |---------|-------------|
 | `/start` | Show help |
 | `/status` | Active sessions + pending approval count |
-| `/sessions` | List tracked sessions with their working dirs |
-| `/pending` | Re-send buttons for unresolved approvals |
-| `/approveall` | Approve every pending request |
-| `/denyall` | Deny every pending request |
+| `/sessions` | List tracked sessions |
+| `/pending` | Re-show any unresolved approval requests |
+| `/approveall` | Approve everything pending |
+| `/denyall` | Deny everything pending |
 
-Approval messages have Approve / Deny inline buttons — just tap.
+Approval messages include inline **Approve** / **Deny** buttons — just tap.
 
-## Configuration knobs (optional)
+## How networking works
 
-In `.env`:
+Your phone and laptop don't need to be on the same network. Shiro uses Telegram's bot API, which means your laptop connects *outbound* to Telegram, your phone talks to Telegram too, and Telegram routes between you. As long as your laptop has internet, you can control it from anywhere.
+
+## Configuration (optional)
+
+All tunable in `.env`:
 
 ```
-CLAUDE_TIMEOUT_SECONDS=55   # Auto-deny Claude requests after this many seconds (< hook's 60s)
-CODEX_TIMEOUT_SECONDS=120   # Auto-deny Codex requests after this many seconds
-SESSION_STALE_SECONDS=1800  # Drop sessions we haven't heard from after this long
+CLAUDE_TIMEOUT_SECONDS=55
+CODEX_TIMEOUT_SECONDS=120
+SESSION_STALE_SECONDS=1800
 ```
 
 ## Security notes
 
 - HTTP server binds to `127.0.0.1` only — not reachable from the network.
-- Telegram bot only responds to messages from your configured `TELEGRAM_CHAT_ID`.
-- On timeout, requests are **denied** (fail-closed).
-- If the control plane is down when Codex calls it, the shell script denies the request.
+- The bot only responds to the chat ID you configured; all other senders are ignored.
+- Fails closed: if approval times out or the bot is unreachable, the agent request is denied.
 
-## Project layout
+## Roadmap
 
-```
-src/
-  index.ts        # entry: boots HTTP server + Telegram bot
-  config.ts       # env loading
-  types.ts        # shared interfaces
-  state.ts        # in-memory session + pending-approval store
-  http-server.ts  # /hooks/claude/permission + /hooks/codex/pretool
-  telegram.ts     # grammY bot, commands, approve/deny callbacks
-hooks/
-  codex-hook.sh   # shell bridge Codex calls; forwards to HTTP server
-```
+- Rate-limit-aware resume (ping you when token limits reset)
+- Remind/scheduling commands
+- Beyond coding: arbitrary tool triggering via chat

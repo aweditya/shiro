@@ -245,9 +245,13 @@ function renderResolvedMessage(
 function renderTimeoutMessage(approval: PendingApproval): string {
   const label = cwdLabel(approval.cwd);
   const toolSummary = summarizeTool(approval.toolName, approval.toolInput);
+  // Timeout could mean: user didn't respond anywhere, OR user responded
+  // locally in the terminal but the agent kept the HTTP connection open.
+  // We can't tell the difference — so don't claim a verdict here.
   return [
-    `<b>TIMED OUT · auto-denied</b> · [${agentTag(approval.agent)}] <code>${escapeHtml(label)}</code>`,
+    `<b>No Telegram response</b> · [${agentTag(approval.agent)}] <code>${escapeHtml(label)}</code>`,
     `<i>${escapeHtml(approval.toolName)}</i>`,
+    `<i>Check terminal for the actual outcome.</i>`,
     "",
     `<pre>${escapeHtml(toolSummary)}</pre>`,
   ].join("\n");
