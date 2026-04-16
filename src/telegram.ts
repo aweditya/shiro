@@ -180,6 +180,24 @@ export async function notifyTimeout(
   }
 }
 
+export async function notifyResolvedLocally(
+  bot: Bot,
+  approval: PendingApproval,
+): Promise<void> {
+  if (!approval.telegramChatId || !approval.telegramMessageId) return;
+  try {
+    await bot.api.editMessageText(
+      approval.telegramChatId,
+      approval.telegramMessageId,
+      renderResolvedLocallyMessage(approval),
+      { parse_mode: "HTML" },
+    );
+  } catch (err) {
+    // Message may be too old to edit, or Telegram may not have sent it yet.
+    // Failure here is not fatal — the approval is already resolved.
+  }
+}
+
 async function editResolvedMessage(
   bot: Bot,
   approval: PendingApproval,
@@ -229,6 +247,17 @@ function renderTimeoutMessage(approval: PendingApproval): string {
   const toolSummary = summarizeTool(approval.toolName, approval.toolInput);
   return [
     `<b>TIMED OUT · auto-denied</b> · [${agentTag(approval.agent)}] <code>${escapeHtml(label)}</code>`,
+    `<i>${escapeHtml(approval.toolName)}</i>`,
+    "",
+    `<pre>${escapeHtml(toolSummary)}</pre>`,
+  ].join("\n");
+}
+
+function renderResolvedLocallyMessage(approval: PendingApproval): string {
+  const label = cwdLabel(approval.cwd);
+  const toolSummary = summarizeTool(approval.toolName, approval.toolInput);
+  return [
+    `<b>Resolved in terminal</b> · [${agentTag(approval.agent)}] <code>${escapeHtml(label)}</code>`,
     `<i>${escapeHtml(approval.toolName)}</i>`,
     "",
     `<pre>${escapeHtml(toolSummary)}</pre>`,

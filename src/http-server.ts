@@ -6,7 +6,11 @@ import {
   resolvePendingApproval,
   upsertSession,
 } from "./state.js";
-import { notifyTimeout, sendApprovalMessage } from "./telegram.js";
+import {
+  notifyResolvedLocally,
+  notifyTimeout,
+  sendApprovalMessage,
+} from "./telegram.js";
 import type {
   ApprovalDecision,
   ClaudePermissionRequestInput,
@@ -164,11 +168,17 @@ function awaitDecision(args: AwaitDecisionArgs): Promise<ApprovalDecision> {
     }, args.timeoutSeconds * 1000);
 
     const onClose = () => {
-      // Client disconnected before we responded — drop the pending approval
-      resolvePendingApproval(approval.id, {
+      // Client disconnected before we responded — the agent resolved this
+      // locally (approved/denied in terminal, or session was killed). Drop
+      // the pending approval and strip the Telegram buttons so we don't
+      // show a stale action.
+      const resolved = resolvePendingApproval(approval.id, {
         approved: false,
-        reason: "client_disconnected",
+        reason: "resolved_locally",
       });
+      if (resolved) {
+        void notifyResolvedLocally(args.bot, resolved);
+      }
     };
     args.res.on("close", onClose);
 
