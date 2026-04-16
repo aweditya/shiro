@@ -18,12 +18,13 @@ import {
   sendApprovalMessage,
 } from "./telegram.js";
 import type {
+  AgentKind,
   ApprovalDecision,
   ClaudePermissionRequestInput,
   ClaudePostToolUseInput,
   ClaudeStopFailureInput,
-  ClaudeUserPromptSubmitInput,
   CodexPreToolUseInput,
+  UserPromptSubmitInput,
 } from "./types.js";
 
 export function createHttpServer(bot: Bot): http.Server {
@@ -55,7 +56,7 @@ export function createHttpServer(bot: Bot): http.Server {
       }
 
       if (req.method === "POST" && req.url === "/hooks/claude/userprompt") {
-        await handleClaudeUserPrompt(req, res);
+        await handleUserPrompt("claude", req, res);
         return;
       }
 
@@ -66,6 +67,11 @@ export function createHttpServer(bot: Bot): http.Server {
 
       if (req.method === "POST" && req.url === "/hooks/codex/pretool") {
         await handleCodexPreTool(req, res, bot);
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/hooks/codex/userprompt") {
+        await handleUserPrompt("codex", req, res);
         return;
       }
 
@@ -185,16 +191,17 @@ async function handleClaudePostTool(
   writeJson(res, 200, { ok: true });
 }
 
-async function handleClaudeUserPrompt(
+async function handleUserPrompt(
+  agent: AgentKind,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const body = await readJson<ClaudeUserPromptSubmitInput>(req);
+  const body = await readJson<UserPromptSubmitInput>(req);
   if (!body || !body.session_id || typeof body.prompt !== "string") {
     writeJson(res, 400, { error: "invalid_payload" });
     return;
   }
-  upsertSession("claude", body.session_id, body.cwd ?? "");
+  upsertSession(agent, body.session_id, body.cwd ?? "");
   setSessionTask(body.session_id, body.prompt);
   writeJson(res, 200, { ok: true });
 }

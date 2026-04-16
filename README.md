@@ -144,11 +144,22 @@ Create `~/.codex/hooks.json` (update the path to match where you cloned Shiro):
         }
       ]
     }
+  ],
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "/absolute/path/to/shiro/hooks/codex-userprompt-hook.sh",
+          "timeout": 3
+        }
+      ]
+    }
   ]
 }
 ```
 
-The shell bridge sources Shiro's `.env` to pick up `SHIRO_SHARED_SECRET` and automatically sends the `Authorization` header. It also auto-approves common read-only commands (`ls`, `cat`, `git status`, etc.) locally, so Telegram only pings you for commands that actually matter.
+Both shell bridges source Shiro's `.env` to pick up `SHIRO_SHARED_SECRET` and send the `Authorization` header automatically. `codex-hook.sh` auto-approves common read-only commands (`ls`, `cat`, `git status`, etc.) locally, so Telegram only pings you for commands that actually matter. `codex-userprompt-hook.sh` is optional — it captures your latest prompt as the session's current task (mirrors the Claude side) and fails open if Shiro is unreachable.
 
 ## Telegram commands
 

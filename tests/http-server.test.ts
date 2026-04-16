@@ -378,6 +378,57 @@ describe("POST /hooks/claude/userprompt", () => {
   });
 });
 
+describe("POST /hooks/codex/userprompt", () => {
+  it("captures the prompt and tracks the session as codex agent", async () => {
+    const res = await fetch(`${baseUrl}/hooks/codex/userprompt`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "codex-prompt",
+        cwd: "/tmp/proj",
+        hook_event_name: "UserPromptSubmit",
+        prompt: "wire up the codex side",
+      }),
+    });
+    assert.equal(res.status, 200);
+    const sessions = getActiveSessions(60);
+    const tracked = sessions.find((s) => s.id === "codex-prompt");
+    assert.equal(tracked?.agent, "codex");
+    assert.equal(tracked?.currentTask, "wire up the codex side");
+  });
+
+  it("surfaces the captured task on subsequent Codex PreToolUse messages", async () => {
+    await fetch(`${baseUrl}/hooks/codex/userprompt`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "codex-chained",
+        cwd: "/tmp",
+        hook_event_name: "UserPromptSubmit",
+        prompt: "codex task here",
+      }),
+    });
+
+    const pending = fetch(`${baseUrl}/hooks/codex/pretool`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "codex-chained",
+        cwd: "/tmp",
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "ls" },
+      }),
+    });
+    await waitFor(() => getPendingApprovals().length === 1);
+    await waitFor(() => calls.sendMessage.length === 1);
+    assert.match(calls.sendMessage[0]!.text, /Task: codex task here/);
+    const [a] = getPendingApprovals();
+    resolvePendingApproval(a!.id, { approved: true });
+    await pending;
+  });
+});
+
 describe("POST /hooks/claude/stopfailure", () => {
   it("sends a Telegram notification carrying error_type and error_message", async () => {
     const res = await fetch(`${baseUrl}/hooks/claude/stopfailure`, {

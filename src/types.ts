@@ -55,7 +55,8 @@ export interface ClaudePostToolUseInput {
   tool_response?: Record<string, unknown>;
 }
 
-export interface ClaudeUserPromptSubmitInput {
+/** Shared by Claude + Codex — both hooks deliver the same shape for UserPromptSubmit. */
+export interface UserPromptSubmitInput {
   session_id: string;
   cwd: string;
   hook_event_name: "UserPromptSubmit";
