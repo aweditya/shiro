@@ -13,11 +13,16 @@ export interface TmuxPane {
 }
 
 /**
- * Foreground processes we treat as "an agent is running here." Loose by design:
- * `node` matches Codex (which runs as a Node binary) but also any other Node
- * process. The cwd match in auto-bind narrows it; manual /bind covers the rest.
+ * Foreground commands we treat as "an agent is running here." Matched by
+ * prefix so truncated names from tmux (e.g. `codex-aarch64-apple-darwin`
+ * displayed as `codex-aarch64-a`) still count. Manual /bind covers anything
+ * we miss.
  */
-const AGENT_COMMANDS = new Set(["claude", "codex", "node"]);
+const AGENT_COMMAND_PREFIXES = ["claude", "codex"];
+
+function isAgentCommand(command: string): boolean {
+  return AGENT_COMMAND_PREFIXES.some((p) => command.startsWith(p));
+}
 
 /**
  * List every tmux pane on the default server whose foreground process looks
@@ -45,7 +50,7 @@ export function parseAgentPanes(stdout: string): TmuxPane[] {
     if (!line) continue;
     const [target, command, cwd] = line.split("\t");
     if (!target || !command || !cwd) continue;
-    if (!AGENT_COMMANDS.has(command)) continue;
+    if (!isAgentCommand(command)) continue;
     panes.push({ target, command, cwd });
   }
   return panes;
@@ -53,11 +58,15 @@ export function parseAgentPanes(stdout: string): TmuxPane[] {
 
 /**
  * Check whether a tmux target (session, window, or pane) currently resolves.
+ * Uses `list-panes -t` because `display-message -p -t` silently falls back to
+ * the current pane on tmux 3.6 when the target doesn't exist (returns exit 0
+ * with empty output) — making it useless as an existence probe.
+ *
  * Returns false on any tmux error — callers treat "can't tell" as "gone".
  */
 export async function paneExists(target: string): Promise<boolean> {
   try {
-    await execFileP("tmux", ["display-message", "-p", "-t", target, "#{pane_id}"]);
+    await execFileP("tmux", ["list-panes", "-t", target]);
     return true;
   } catch {
     return false;
