@@ -20,6 +20,8 @@ npm run dev
 
 Then hook up whichever agent(s) you use — see below.
 
+Run the test suite with `npm test`.
+
 ## Setting up the Telegram bot
 
 1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, follow the prompts, and copy the **bot token**.
