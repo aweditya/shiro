@@ -61,12 +61,29 @@ Add to `~/.claude/settings.json` (replace `<SHIRO_SHARED_SECRET>` with the value
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hooks/claude/posttool",
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer <SHIRO_SHARED_SECRET>"
+            }
+          }
+        ]
+      }
     ]
   }
 }
 ```
 
 Run `chmod 600 ~/.claude/settings.json` so other users can't read the secret. Open a new Claude Code session and the hook will route permission requests to Telegram.
+
+The `PostToolUse` hook is optional but recommended: it lets Shiro update a stale Telegram message to "Approved in terminal" when you approve from your laptop (instead of leaving it at "No Telegram response").
 
 ## Codex
 

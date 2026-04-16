@@ -198,6 +198,24 @@ export async function notifyResolvedLocally(
   }
 }
 
+export async function notifyToolRan(
+  bot: Bot,
+  approval: PendingApproval,
+  toolResponse: Record<string, unknown> | null,
+): Promise<void> {
+  if (!approval.telegramChatId || !approval.telegramMessageId) return;
+  try {
+    await bot.api.editMessageText(
+      approval.telegramChatId,
+      approval.telegramMessageId,
+      renderToolRanMessage(approval, toolResponse),
+      { parse_mode: "HTML" },
+    );
+  } catch (err) {
+    // Non-fatal: message may be too old or already edited.
+  }
+}
+
 async function editResolvedMessage(
   bot: Bot,
   approval: PendingApproval,
@@ -266,6 +284,43 @@ function renderResolvedLocallyMessage(approval: PendingApproval): string {
     "",
     `<pre>${escapeHtml(toolSummary)}</pre>`,
   ].join("\n");
+}
+
+function renderToolRanMessage(
+  approval: PendingApproval,
+  toolResponse: Record<string, unknown> | null,
+): string {
+  const label = cwdLabel(approval.cwd);
+  const toolSummary = summarizeTool(approval.toolName, approval.toolInput);
+  const outcome = summarizeToolResponse(toolResponse);
+  const lines = [
+    `<b>Approved in terminal</b> · [${agentTag(approval.agent)}] <code>${escapeHtml(label)}</code>`,
+    `<i>${escapeHtml(approval.toolName)}</i>`,
+    "",
+    `<pre>${escapeHtml(toolSummary)}</pre>`,
+  ];
+  if (outcome) {
+    lines.push(`<i>${escapeHtml(outcome)}</i>`);
+  }
+  return lines.join("\n");
+}
+
+function summarizeToolResponse(
+  toolResponse: Record<string, unknown> | null,
+): string | null {
+  if (!toolResponse) return null;
+  if (toolResponse.interrupted === true) {
+    return "Tool was interrupted.";
+  }
+  if (
+    typeof toolResponse.stderr === "string" &&
+    toolResponse.stderr.length > 0 &&
+    typeof toolResponse.stdout === "string" &&
+    toolResponse.stdout.length === 0
+  ) {
+    return "Tool exited with stderr output.";
+  }
+  return null;
 }
 
 function agentTag(agent: "claude" | "codex"): string {

@@ -44,3 +44,12 @@ export interface CodexPreToolUseInput {
   tool_input: Record<string, unknown>;
   turn_id?: string;
 }
+
+export interface ClaudePostToolUseInput {
+  session_id: string;
+  cwd: string;
+  hook_event_name: "PostToolUse";
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_response?: Record<string, unknown>;
+}

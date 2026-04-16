@@ -4,17 +4,21 @@ import type { Bot } from "grammy";
 import { config } from "./config.js";
 import {
   addPendingApproval,
+  findPendingByCorrelation,
+  popRecentApproval,
   resolvePendingApproval,
   upsertSession,
 } from "./state.js";
 import {
   notifyResolvedLocally,
   notifyTimeout,
+  notifyToolRan,
   sendApprovalMessage,
 } from "./telegram.js";
 import type {
   ApprovalDecision,
   ClaudePermissionRequestInput,
+  ClaudePostToolUseInput,
   CodexPreToolUseInput,
 } from "./types.js";
 
@@ -38,6 +42,11 @@ export function createHttpServer(bot: Bot): http.Server {
 
       if (req.method === "POST" && req.url === "/hooks/claude/permission") {
         await handleClaudePermission(req, res, bot);
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/hooks/claude/posttool") {
+        await handleClaudePostTool(req, res, bot);
         return;
       }
 
@@ -106,6 +115,59 @@ async function handleClaudePermission(
     },
   };
   writeJson(res, 200, payload);
+}
+
+async function handleClaudePostTool(
+  req: IncomingMessage,
+  res: ServerResponse,
+  bot: Bot,
+): Promise<void> {
+  const body = await readJson<ClaudePostToolUseInput>(req);
+  if (!body || !body.session_id || !body.tool_name) {
+    writeJson(res, 400, { error: "invalid_payload" });
+    return;
+  }
+
+  upsertSession("claude", body.session_id, body.cwd ?? "");
+
+  // PostToolUse is the ground truth: the tool ran. Correlate back to any
+  // Telegram message we showed for this (session, tool, input) combo and
+  // update it to reflect the actual outcome.
+  const toolInput = body.tool_input ?? {};
+
+  // Case A: the pending approval is still open (agent kept the HTTP connection
+  // open despite resolving the permission locally). Resolve it now as approved
+  // — the tool actually ran.
+  const pending = findPendingByCorrelation(
+    "claude",
+    body.session_id,
+    body.tool_name,
+    toolInput,
+  );
+  if (pending) {
+    const resolved = resolvePendingApproval(pending.id, {
+      approved: true,
+      reason: "approved_in_terminal",
+    });
+    if (resolved) {
+      void notifyToolRan(bot, resolved, body.tool_response ?? null);
+    }
+  } else {
+    // Case B: the approval is already resolved (timed out or closed-locally),
+    // but we stashed it for correlation. Update the stale Telegram message.
+    const recent = popRecentApproval(
+      "claude",
+      body.session_id,
+      body.tool_name,
+      toolInput,
+    );
+    if (recent) {
+      void notifyToolRan(bot, recent.approval, body.tool_response ?? null);
+    }
+  }
+
+  // PostToolUse hooks don't need a permission-style response; return 200 fast.
+  writeJson(res, 200, { ok: true });
 }
 
 async function handleCodexPreTool(
