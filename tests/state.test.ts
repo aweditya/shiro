@@ -4,15 +4,24 @@ import {
   __resetStateForTests,
   addPendingApproval,
   attachTelegramMessage,
+  clearBinding,
+  consumePhonePromptPending,
   correlationKey,
   findPendingByCorrelation,
   getActiveSessions,
+  getAllBindings,
+  getBinding,
+  getBindingByTarget,
   getPendingApproval,
   getPendingApprovals,
+  hasAttemptedAutoBind,
+  markAutoBindAttempted,
+  markPhonePromptPending,
   popRecentApproval,
   pruneStaleSessions,
   renameSession,
   resolvePendingApproval,
+  setBinding,
   setSessionTask,
   upsertSession,
 } from "../src/state.js";
@@ -359,6 +368,95 @@ describe("addPendingApproval task snapshot", () => {
       resolve: () => {},
     });
     assert.equal(a.task, "the current task");
+  });
+});
+
+describe("tmux bindings", () => {
+  it("setBinding stores target + source and getBinding reads it back", () => {
+    const binding = setBinding("sess-1", "main:0.0", "manual");
+    assert.equal(binding.target, "main:0.0");
+    assert.equal(binding.source, "manual");
+    assert.ok(binding.boundAt > 0);
+    assert.deepEqual(getBinding("sess-1"), binding);
+  });
+
+  it("setBinding overwrites an existing binding for the same session", () => {
+    setBinding("sess-1", "main:0.0", "auto");
+    const second = setBinding("sess-1", "work:1.0", "manual");
+    assert.equal(getBinding("sess-1")?.target, "work:1.0");
+    assert.equal(getBinding("sess-1")?.source, "manual");
+    assert.equal(second.target, "work:1.0");
+  });
+
+  it("clearBinding removes the entry and returns whether it existed", () => {
+    setBinding("sess-1", "main:0.0", "manual");
+    assert.equal(clearBinding("sess-1"), true);
+    assert.equal(getBinding("sess-1"), undefined);
+    assert.equal(clearBinding("sess-1"), false);
+  });
+
+  it("getBindingByTarget finds the session bound to a tmux target", () => {
+    setBinding("sess-1", "main:0.0", "auto");
+    setBinding("sess-2", "work:1.0", "manual");
+    assert.equal(getBindingByTarget("work:1.0")?.sessionId, "sess-2");
+    assert.equal(getBindingByTarget("nope"), undefined);
+  });
+
+  it("getAllBindings returns every {sessionId, binding} pair", () => {
+    setBinding("a", "ta:0.0", "auto");
+    setBinding("b", "tb:0.0", "manual");
+    const all = getAllBindings();
+    assert.equal(all.length, 2);
+    const ids = all.map((b) => b.sessionId).sort();
+    assert.deepEqual(ids, ["a", "b"]);
+  });
+
+  it("__resetStateForTests clears all bindings", () => {
+    setBinding("sess-1", "main:0.0", "auto");
+    __resetStateForTests();
+    assert.equal(getBinding("sess-1"), undefined);
+    assert.equal(getAllBindings().length, 0);
+  });
+});
+
+describe("auto-bind attempt tracking", () => {
+  it("markAutoBindAttempted flips hasAttemptedAutoBind to true", () => {
+    assert.equal(hasAttemptedAutoBind("sess-1"), false);
+    markAutoBindAttempted("sess-1");
+    assert.equal(hasAttemptedAutoBind("sess-1"), true);
+  });
+
+  it("attempt flag is per-session", () => {
+    markAutoBindAttempted("sess-1");
+    assert.equal(hasAttemptedAutoBind("sess-2"), false);
+  });
+
+  it("__resetStateForTests clears attempt flags", () => {
+    markAutoBindAttempted("sess-1");
+    __resetStateForTests();
+    assert.equal(hasAttemptedAutoBind("sess-1"), false);
+  });
+});
+
+describe("phone prompt pending", () => {
+  it("consumePhonePromptPending returns true exactly once after marking", () => {
+    markPhonePromptPending("sess-1");
+    assert.equal(consumePhonePromptPending("sess-1"), true);
+    assert.equal(
+      consumePhonePromptPending("sess-1"),
+      false,
+      "second consume should be false (one-shot)",
+    );
+  });
+
+  it("consumePhonePromptPending returns false when never marked", () => {
+    assert.equal(consumePhonePromptPending("sess-x"), false);
+  });
+
+  it("__resetStateForTests clears pending flags", () => {
+    markPhonePromptPending("sess-1");
+    __resetStateForTests();
+    assert.equal(consumePhonePromptPending("sess-1"), false);
   });
 });
 

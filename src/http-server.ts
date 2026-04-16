@@ -5,11 +5,16 @@ import { config } from "./config.js";
 import {
   addPendingApproval,
   findPendingByCorrelation,
+  getBinding,
+  hasAttemptedAutoBind,
+  markAutoBindAttempted,
   popRecentApproval,
   resolvePendingApproval,
+  setBinding,
   setSessionTask,
   upsertSession,
 } from "./state.js";
+import { listAgentPanes, type TmuxPane } from "./tmux.js";
 import {
   notifyResolvedLocally,
   notifyStopFailure,
@@ -119,6 +124,7 @@ async function handleClaudePermission(
   }
 
   const session = upsertSession("claude", body.session_id, body.cwd ?? "");
+  void tryAutoBind(body.session_id, body.cwd ?? "");
 
   const decision = await awaitDecision({
     res,
@@ -158,6 +164,7 @@ async function handleClaudePostTool(
   }
 
   upsertSession("claude", body.session_id, body.cwd ?? "");
+  void tryAutoBind(body.session_id, body.cwd ?? "");
 
   // PostToolUse is the ground truth: the tool ran. Correlate back to any
   // Telegram message we showed for this (session, tool, input) combo and
@@ -210,6 +217,9 @@ async function handleUserPrompt(
     return;
   }
   upsertSession(agent, body.session_id, body.cwd ?? "");
+  if (agent === "claude") {
+    void tryAutoBind(body.session_id, body.cwd ?? "");
+  }
   setSessionTask(body.session_id, body.prompt);
   writeJson(res, 200, { ok: true });
 }
@@ -225,6 +235,7 @@ async function handleClaudeStopFailure(
     return;
   }
   const session = upsertSession("claude", body.session_id, body.cwd ?? "");
+  void tryAutoBind(body.session_id, body.cwd ?? "");
   void notifyStopFailure(
     bot,
     session,
@@ -245,12 +256,49 @@ async function handleClaudeStop(
     return;
   }
   const session = upsertSession("claude", body.session_id, body.cwd ?? "");
+  void tryAutoBind(body.session_id, body.cwd ?? "");
   // Always 200 — Stop hooks don't gate Claude on our response, so respond
   // fast and decide about Telegram separately.
   writeJson(res, 200, { ok: true });
   if (shouldNotifyStop(session, Date.now(), config.stopNotifyMinSeconds)) {
     void notifyStopped(bot, session, body.last_assistant_message ?? "");
   }
+}
+
+/**
+ * Best-effort: on the first hook fire from a previously unseen Claude session,
+ * try to find a tmux pane in the same cwd running an agent. Only bind if
+ * exactly one match — multiple matches need manual /bind to disambiguate.
+ *
+ * Cached by session id so we don't reshell on every hook. Auto-discovery is
+ * Claude-only for v1; Codex injection works the same way but its response
+ * routing isn't built yet (no Stop hook equivalent).
+ *
+ * `listPanes` is injectable so tests can drive each branch without shelling
+ * out to a real tmux server.
+ */
+export async function tryAutoBind(
+  sessionId: string,
+  cwd: string,
+  listPanes: () => Promise<TmuxPane[]> = listAgentPanes,
+): Promise<void> {
+  if (!cwd) return;
+  if (hasAttemptedAutoBind(sessionId)) return;
+  if (getBinding(sessionId)) return;
+  markAutoBindAttempted(sessionId);
+  let panes: TmuxPane[];
+  try {
+    panes = await listPanes();
+  } catch {
+    // Best-effort: if introspection fails (tmux gone, exec error, anything),
+    // skip binding silently. Caller fires us with `void`, so we must never
+    // surface as an unhandled rejection.
+    return;
+  }
+  const matches = panes.filter((p) => p.cwd === cwd);
+  if (matches.length !== 1) return;
+  const [pane] = matches as [(typeof matches)[number]];
+  setBinding(sessionId, pane.target, "auto");
 }
 
 /**

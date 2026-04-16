@@ -16,12 +16,31 @@ const RECENT_APPROVAL_TTL_MS = 5 * 60 * 1000;
 const sessions = new Map<string, Session>();
 const pendingApprovals = new Map<string, PendingApproval>();
 const recentApprovals = new Map<string, RecentApproval>();
+const tmuxBindings = new Map<string, TmuxBinding>();
+// Sessions whose next Stop should always notify Telegram (and bypass the
+// duration filter), because the just-finished turn was driven by `/say` from
+// the phone. Cleared after the Stop hook fires.
+const phonePromptPending = new Set<string>();
+// Sessions for which we've already attempted auto-bind. Prevents shelling out
+// to `tmux list-panes` on every hook fire when no match exists.
+const attemptedAutoBind = new Set<string>();
 
 /** Test-only: clear all in-memory state so cases stay hermetic. */
 export function __resetStateForTests(): void {
   sessions.clear();
   pendingApprovals.clear();
   recentApprovals.clear();
+  tmuxBindings.clear();
+  phonePromptPending.clear();
+  attemptedAutoBind.clear();
+}
+
+export interface TmuxBinding {
+  /** tmux target string (session:window.pane or session) used with -t */
+  target: string;
+  /** How the binding was established — useful for /bindings introspection */
+  source: "auto" | "manual";
+  boundAt: number;
 }
 
 export interface RecentApproval {
@@ -230,6 +249,63 @@ export function getPendingApprovals(): PendingApproval[] {
   return Array.from(pendingApprovals.values()).sort(
     (a, b) => a.receivedAt - b.receivedAt,
   );
+}
+
+// ── tmux bindings ──────────────────────────────────────────────────────────
+
+export function getBinding(sessionId: string): TmuxBinding | undefined {
+  return tmuxBindings.get(sessionId);
+}
+
+export function getBindingByTarget(target: string):
+  | { sessionId: string; binding: TmuxBinding }
+  | undefined {
+  for (const [sessionId, binding] of tmuxBindings) {
+    if (binding.target === target) return { sessionId, binding };
+  }
+  return undefined;
+}
+
+export function setBinding(
+  sessionId: string,
+  target: string,
+  source: "auto" | "manual",
+): TmuxBinding {
+  const binding: TmuxBinding = { target, source, boundAt: Date.now() };
+  tmuxBindings.set(sessionId, binding);
+  return binding;
+}
+
+export function clearBinding(sessionId: string): boolean {
+  return tmuxBindings.delete(sessionId);
+}
+
+export function getAllBindings(): Array<{
+  sessionId: string;
+  binding: TmuxBinding;
+}> {
+  return Array.from(tmuxBindings.entries()).map(([sessionId, binding]) => ({
+    sessionId,
+    binding,
+  }));
+}
+
+export function hasAttemptedAutoBind(sessionId: string): boolean {
+  return attemptedAutoBind.has(sessionId);
+}
+
+export function markAutoBindAttempted(sessionId: string): void {
+  attemptedAutoBind.add(sessionId);
+}
+
+// ── phone prompt routing ───────────────────────────────────────────────────
+
+export function markPhonePromptPending(sessionId: string): void {
+  phonePromptPending.add(sessionId);
+}
+
+export function consumePhonePromptPending(sessionId: string): boolean {
+  return phonePromptPending.delete(sessionId);
 }
 
 export function attachTelegramMessage(

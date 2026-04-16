@@ -4,13 +4,21 @@ import type { AddressInfo } from "node:net";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { Bot } from "grammy";
 import { config } from "../src/config.js";
-import { createHttpServer, shouldNotifyStop } from "../src/http-server.js";
+import {
+  createHttpServer,
+  shouldNotifyStop,
+  tryAutoBind,
+} from "../src/http-server.js";
 import {
   __resetStateForTests,
   getActiveSessions,
+  getBinding,
   getPendingApprovals,
+  hasAttemptedAutoBind,
   resolvePendingApproval,
+  setBinding,
 } from "../src/state.js";
+import type { TmuxPane } from "../src/tmux.js";
 import type { Session } from "../src/types.js";
 
 interface FakeBotCalls {
@@ -605,6 +613,104 @@ describe("POST /hooks/claude/stop", () => {
     assert.equal(res.status, 200);
     const active = getActiveSessions(60);
     assert.ok(active.some((s) => s.id === "s-track" && s.agent === "claude"));
+  });
+});
+
+describe("tryAutoBind", () => {
+  function fakeLister(panes: TmuxPane[]): () => Promise<TmuxPane[]> {
+    return async () => panes;
+  }
+
+  it("binds when exactly one pane matches the cwd", async () => {
+    await tryAutoBind(
+      "sess-1",
+      "/Users/a/proj",
+      fakeLister([
+        { target: "main:0.0", command: "claude", cwd: "/Users/a/proj" },
+        { target: "other:0.0", command: "codex", cwd: "/Users/a/elsewhere" },
+      ]),
+    );
+    const binding = getBinding("sess-1");
+    assert.equal(binding?.target, "main:0.0");
+    assert.equal(binding?.source, "auto");
+    assert.equal(hasAttemptedAutoBind("sess-1"), true);
+  });
+
+  it("does not bind when multiple panes match (ambiguous)", async () => {
+    await tryAutoBind(
+      "sess-1",
+      "/Users/a/proj",
+      fakeLister([
+        { target: "main:0.0", command: "claude", cwd: "/Users/a/proj" },
+        { target: "alt:0.0", command: "claude", cwd: "/Users/a/proj" },
+      ]),
+    );
+    assert.equal(getBinding("sess-1"), undefined);
+    assert.equal(
+      hasAttemptedAutoBind("sess-1"),
+      true,
+      "still marks attempted so we don't reshell on every hook",
+    );
+  });
+
+  it("does not bind when no panes match", async () => {
+    await tryAutoBind(
+      "sess-1",
+      "/Users/a/proj",
+      fakeLister([
+        { target: "main:0.0", command: "claude", cwd: "/Users/a/elsewhere" },
+      ]),
+    );
+    assert.equal(getBinding("sess-1"), undefined);
+    assert.equal(hasAttemptedAutoBind("sess-1"), true);
+  });
+
+  it("is a no-op when cwd is empty (does not even mark attempted)", async () => {
+    await tryAutoBind(
+      "sess-1",
+      "",
+      fakeLister([
+        { target: "main:0.0", command: "claude", cwd: "" },
+      ]),
+    );
+    assert.equal(getBinding("sess-1"), undefined);
+    assert.equal(hasAttemptedAutoBind("sess-1"), false);
+  });
+
+  it("skips listing when already attempted for this session", async () => {
+    let called = 0;
+    const lister = async () => {
+      called++;
+      return [];
+    };
+    await tryAutoBind("sess-1", "/a", lister);
+    await tryAutoBind("sess-1", "/a", lister);
+    assert.equal(called, 1);
+  });
+
+  it("skips listing when a binding already exists", async () => {
+    setBinding("sess-1", "preset:0.0", "manual");
+    let called = 0;
+    await tryAutoBind("sess-1", "/a", async () => {
+      called++;
+      return [];
+    });
+    assert.equal(called, 0);
+    assert.equal(getBinding("sess-1")?.target, "preset:0.0");
+  });
+
+  it("swallows lister errors and skips binding (best-effort)", async () => {
+    // Callers fire with `void` — an unhandled rejection from the listing call
+    // would crash node. tryAutoBind must catch internally.
+    await tryAutoBind("sess-1", "/a", async () => {
+      throw new Error("tmux not found");
+    });
+    assert.equal(getBinding("sess-1"), undefined);
+    assert.equal(
+      hasAttemptedAutoBind("sess-1"),
+      true,
+      "still mark attempted — repeated failures shouldn't reshell on every hook",
+    );
   });
 });
 
