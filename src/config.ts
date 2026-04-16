@@ -30,6 +30,11 @@ export const config = {
   codexTimeoutSeconds: optionalInt("CODEX_TIMEOUT_SECONDS", 120),
   // Prune sessions not seen in this many seconds
   sessionStaleSeconds: optionalInt("SESSION_STALE_SECONDS", 1800),
+  // Stop hook fires on every turn completion. Only ping Telegram if the
+  // turn took at least this long — prevents spam during interactive chat.
+  // Set to 0 to notify on every Stop. Requires UserPromptSubmit to be hooked
+  // up (otherwise we have no start time and skip the notification).
+  stopNotifyMinSeconds: optionalInt("STOP_NOTIFY_MIN_SECONDS", 30),
 } as const;
 
 if (Number.isNaN(config.chatId)) {

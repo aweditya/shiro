@@ -13,6 +13,7 @@ import {
 import {
   notifyResolvedLocally,
   notifyStopFailure,
+  notifyStopped,
   notifyTimeout,
   notifyToolRan,
   sendApprovalMessage,
@@ -23,7 +24,9 @@ import type {
   ClaudePermissionRequestInput,
   ClaudePostToolUseInput,
   ClaudeStopFailureInput,
+  ClaudeStopInput,
   CodexPreToolUseInput,
+  Session,
   UserPromptSubmitInput,
 } from "./types.js";
 
@@ -62,6 +65,11 @@ export function createHttpServer(bot: Bot): http.Server {
 
       if (req.method === "POST" && req.url === "/hooks/claude/stopfailure") {
         await handleClaudeStopFailure(req, res, bot);
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/hooks/claude/stop") {
+        await handleClaudeStop(req, res, bot);
         return;
       }
 
@@ -224,6 +232,42 @@ async function handleClaudeStopFailure(
     body.error_message ?? "",
   );
   writeJson(res, 200, { ok: true });
+}
+
+async function handleClaudeStop(
+  req: IncomingMessage,
+  res: ServerResponse,
+  bot: Bot,
+): Promise<void> {
+  const body = await readJson<ClaudeStopInput>(req);
+  if (!body || !body.session_id) {
+    writeJson(res, 400, { error: "invalid_payload" });
+    return;
+  }
+  const session = upsertSession("claude", body.session_id, body.cwd ?? "");
+  // Always 200 — Stop hooks don't gate Claude on our response, so respond
+  // fast and decide about Telegram separately.
+  writeJson(res, 200, { ok: true });
+  if (shouldNotifyStop(session, Date.now(), config.stopNotifyMinSeconds)) {
+    void notifyStopped(bot, session, body.last_assistant_message ?? "");
+  }
+}
+
+/**
+ * Stop fires on every turn completion, so without filtering you'd get pinged
+ * during normal interactive chat. Only notify when we have evidence the turn
+ * was long enough to suggest the user walked away. Setting `minSeconds=0`
+ * disables the filter (notify on every Stop).
+ */
+export function shouldNotifyStop(
+  session: Session,
+  now: number,
+  minSeconds: number,
+): boolean {
+  if (minSeconds <= 0) return true;
+  if (session.taskStartedAt === undefined) return false;
+  const elapsed = (now - session.taskStartedAt) / 1000;
+  return elapsed >= minSeconds;
 }
 
 async function handleCodexPreTool(

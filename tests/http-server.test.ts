@@ -4,13 +4,14 @@ import type { AddressInfo } from "node:net";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { Bot } from "grammy";
 import { config } from "../src/config.js";
-import { createHttpServer } from "../src/http-server.js";
+import { createHttpServer, shouldNotifyStop } from "../src/http-server.js";
 import {
   __resetStateForTests,
   getActiveSessions,
   getPendingApprovals,
   resolvePendingApproval,
 } from "../src/state.js";
+import type { Session } from "../src/types.js";
 
 interface FakeBotCalls {
   sendMessage: Array<{ chatId: number; text: string }>;
@@ -492,6 +493,118 @@ describe("POST /hooks/claude/stopfailure", () => {
     assert.equal(res.status, 200);
     const active = getActiveSessions(60);
     assert.ok(active.some((s) => s.id === "s-tracked"));
+  });
+});
+
+describe("shouldNotifyStop", () => {
+  function makeSession(overrides: Partial<Session> = {}): Session {
+    return {
+      id: "s1",
+      agent: "claude",
+      label: "lbl",
+      cwd: "/tmp",
+      lastSeen: 0,
+      ...overrides,
+    };
+  }
+
+  it("returns true regardless of timing when minSeconds=0", () => {
+    const s = makeSession({ taskStartedAt: 1000 });
+    assert.equal(shouldNotifyStop(s, 1500, 0), true);
+    assert.equal(shouldNotifyStop(makeSession(), 0, 0), true);
+  });
+
+  it("returns false when no taskStartedAt and threshold > 0", () => {
+    // Without UserPromptSubmit data we can't tell turn duration — be conservative
+    assert.equal(shouldNotifyStop(makeSession(), Date.now(), 30), false);
+  });
+
+  it("returns true when elapsed time meets the threshold", () => {
+    const start = 0;
+    const now = 30_000; // exactly 30s
+    const s = makeSession({ taskStartedAt: start });
+    assert.equal(shouldNotifyStop(s, now, 30), true);
+  });
+
+  it("returns false when elapsed time is below the threshold", () => {
+    const start = 0;
+    const now = 29_999;
+    const s = makeSession({ taskStartedAt: start });
+    assert.equal(shouldNotifyStop(s, now, 30), false);
+  });
+});
+
+describe("POST /hooks/claude/stop", () => {
+  it("notifies on Stop with last_assistant_message and current task", async () => {
+    // Establish a task first so currentTask is populated
+    await fetch(`${baseUrl}/hooks/claude/userprompt`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-stop",
+        cwd: "/tmp/proj",
+        hook_event_name: "UserPromptSubmit",
+        prompt: "build the stop hook",
+      }),
+    });
+    const res = await fetch(`${baseUrl}/hooks/claude/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-stop",
+        cwd: "/tmp/proj",
+        hook_event_name: "Stop",
+        last_assistant_message: "All wired up. Ready for review.",
+      }),
+    });
+    assert.equal(res.status, 200);
+    await waitFor(() => calls.sendMessage.length === 1);
+    const [sent] = calls.sendMessage;
+    assert.match(sent!.text, /Done/);
+    assert.match(sent!.text, /Task: build the stop hook/);
+    assert.match(sent!.text, /All wired up\. Ready for review\./);
+  });
+
+  it("returns 400 on missing session_id", async () => {
+    const res = await fetch(`${baseUrl}/hooks/claude/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/tmp",
+        hook_event_name: "Stop",
+      }),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("requires auth", async () => {
+    const res = await fetch(`${baseUrl}/hooks/claude/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s",
+        cwd: "/tmp",
+        hook_event_name: "Stop",
+      }),
+    });
+    assert.equal(res.status, 401);
+  });
+
+  it("tracks the session even when no notification is sent", async () => {
+    // Even in the (unfiltered) test env we still want the upsertSession side
+    // effect — Stop is a useful liveness signal regardless of notification.
+    const res = await fetch(`${baseUrl}/hooks/claude/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-track",
+        cwd: "/tmp/foo",
+        hook_event_name: "Stop",
+      }),
+    });
+    assert.equal(res.status, 200);
+    const active = getActiveSessions(60);
+    assert.ok(active.some((s) => s.id === "s-track" && s.agent === "claude"));
   });
 });
 

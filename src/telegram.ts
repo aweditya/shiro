@@ -239,6 +239,22 @@ export async function notifyStopFailure(
   }
 }
 
+export async function notifyStopped(
+  bot: Bot,
+  session: Session,
+  lastAssistantMessage: string,
+): Promise<void> {
+  try {
+    await bot.api.sendMessage(
+      config.chatId,
+      renderStoppedMessage(session, lastAssistantMessage),
+      { parse_mode: "HTML" },
+    );
+  } catch (err) {
+    console.error("Failed to send stop notification:", err);
+  }
+}
+
 export async function notifyToolRan(
   bot: Bot,
   approval: PendingApproval,
@@ -347,6 +363,26 @@ export function renderStopFailureMessage(
   }
   if (errorMessage) {
     lines.push("", `<pre>${escapeHtml(truncate(errorMessage, 400))}</pre>`);
+  }
+  return lines.join("\n");
+}
+
+export function renderStoppedMessage(
+  session: Session,
+  lastAssistantMessage: string,
+): string {
+  const label = cwdLabel(session.cwd);
+  const lines = [
+    `<b>Done</b> · [${agentTag(session.agent)}] <code>${escapeHtml(label)}</code>`,
+  ];
+  if (session.currentTask) {
+    lines.push(`<i>Task: ${escapeHtml(truncate(session.currentTask, 200))}</i>`);
+  }
+  if (lastAssistantMessage) {
+    lines.push(
+      "",
+      `<pre>${escapeHtml(truncate(lastAssistantMessage, 600))}</pre>`,
+    );
   }
   return lines.join("\n");
 }

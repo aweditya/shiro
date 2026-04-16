@@ -10,6 +10,7 @@ import {
   renderResolvedMessage,
   renderSessionLine,
   renderStopFailureMessage,
+  renderStoppedMessage,
   renderTimeoutMessage,
   renderToolRanMessage,
   shortId,
@@ -245,6 +246,59 @@ describe("renderStopFailureMessage", () => {
     assert.doesNotMatch(msg, /<script>/);
     assert.match(msg, /&lt;script&gt;/);
     assert.match(msg, /&lt;weird&gt;/);
+  });
+});
+
+describe("renderStoppedMessage", () => {
+  function makeSession(overrides: Partial<Session> = {}): Session {
+    return {
+      id: "sess123",
+      agent: "claude",
+      label: "shiro",
+      cwd: "/Users/alice/projects/shiro",
+      lastSeen: Date.now(),
+      ...overrides,
+    };
+  }
+
+  it("includes Done header, agent tag, and cwd label", () => {
+    const msg = renderStoppedMessage(makeSession(), "All done.");
+    assert.match(msg, /Done/);
+    assert.match(msg, /Claude/);
+    assert.match(msg, /projects\/shiro/);
+    assert.match(msg, /All done\./);
+  });
+
+  it("includes Task line when session has currentTask", () => {
+    const msg = renderStoppedMessage(
+      makeSession({ currentTask: "ship the stop hook" }),
+      "Done.",
+    );
+    assert.match(msg, /Task: ship the stop hook/);
+  });
+
+  it("omits the message block when last_assistant_message is empty", () => {
+    const msg = renderStoppedMessage(makeSession(), "");
+    assert.match(msg, /Done/);
+    assert.doesNotMatch(msg, /<pre>/);
+  });
+
+  it("HTML-escapes last_assistant_message and currentTask", () => {
+    const msg = renderStoppedMessage(
+      makeSession({ currentTask: "<img src=x>" }),
+      "<script>alert(1)</script>",
+    );
+    assert.doesNotMatch(msg, /<script>/);
+    assert.doesNotMatch(msg, /<img/);
+    assert.match(msg, /&lt;script&gt;/);
+    assert.match(msg, /&lt;img/);
+  });
+
+  it("truncates very long assistant messages", () => {
+    const long = "x".repeat(2000);
+    const msg = renderStoppedMessage(makeSession(), long);
+    assert.ok(msg.length < long.length);
+    assert.match(msg, /truncated/);
   });
 });
 

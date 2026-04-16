@@ -55,8 +55,10 @@ export function upsertSession(
 export function setSessionTask(sessionId: string, task: string): void {
   const session = sessions.get(sessionId);
   if (session) {
+    const now = Date.now();
     session.currentTask = task;
-    session.lastSeen = Date.now();
+    session.taskStartedAt = now;
+    session.lastSeen = now;
   }
 }
 

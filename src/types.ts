@@ -8,6 +8,12 @@ export interface Session {
   lastSeen: number;
   /** Most recent user prompt, captured via UserPromptSubmit. */
   currentTask?: string;
+  /**
+   * Wall-clock timestamp (ms) when currentTask was captured. Used by the
+   * Stop hook to filter out short interactive turns — without this, every
+   * chat message would fire a Telegram ping.
+   */
+  taskStartedAt?: number;
 }
 
 export interface ApprovalDecision {
@@ -70,4 +76,12 @@ export interface ClaudeStopFailureInput {
   /** One of: rate_limit, authentication_failed, billing_error, invalid_request, server_error, max_output_tokens, unknown. */
   error_type: string;
   error_message: string;
+}
+
+export interface ClaudeStopInput {
+  session_id: string;
+  cwd: string;
+  hook_event_name: "Stop";
+  /** Final assistant text for the turn — included by Claude so hooks don't have to read the transcript file. */
+  last_assistant_message?: string;
 }

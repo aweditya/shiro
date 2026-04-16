@@ -107,6 +107,20 @@ Add to `~/.claude/settings.json` (replace `<SHIRO_SHARED_SECRET>` with the value
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hooks/claude/stop",
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer <SHIRO_SHARED_SECRET>"
+            }
+          }
+        ]
+      }
     ]
   }
 }
@@ -114,10 +128,11 @@ Add to `~/.claude/settings.json` (replace `<SHIRO_SHARED_SECRET>` with the value
 
 Run `chmod 600 ~/.claude/settings.json` so other users can't read the secret. Open a new Claude Code session and the hook will route permission requests to Telegram.
 
-The `PostToolUse`, `UserPromptSubmit`, and `StopFailure` hooks are optional but recommended:
+The `PostToolUse`, `UserPromptSubmit`, `StopFailure`, and `Stop` hooks are optional but recommended:
 - `PostToolUse` lets Shiro update a stale message to "Approved in terminal" when you approve from your laptop (instead of leaving it at "No Telegram response").
 - `UserPromptSubmit` captures your latest prompt as the session's current task, so approval notifications and `/status` / `/sessions` can show what each session is actually doing.
 - `StopFailure` (with `matcher: "rate_limit"`) pings you on Telegram the moment Claude hits a rate limit, with the session label and the retry-after message. Swap `matcher` for `""` to also get pinged on auth, billing, and server errors.
+- `Stop` pings you when Claude finishes a turn — useful when you've stepped away from a long-running task. Stop fires on **every** turn, so Shiro filters out short interactive turns: only turns lasting at least `STOP_NOTIFY_MIN_SECONDS` (default 30s) trigger a notification. Requires `UserPromptSubmit` to be configured (that's how Shiro knows when the turn started). Set `STOP_NOTIFY_MIN_SECONDS=0` to ping on every turn.
 
 ## Codex
 
@@ -187,6 +202,7 @@ All tunable in `.env`:
 CLAUDE_TIMEOUT_SECONDS=55
 CODEX_TIMEOUT_SECONDS=120
 SESSION_STALE_SECONDS=1800
+STOP_NOTIFY_MIN_SECONDS=30
 ```
 
 ## Security notes
