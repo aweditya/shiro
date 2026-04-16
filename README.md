@@ -187,6 +187,9 @@ Both shell bridges source Shiro's `.env` to pick up `SHIRO_SHARED_SECRET` and se
 | `/approveall` | Approve everything pending |
 | `/denyall` | Deny everything pending |
 | `/rename <short_id> <label>` | Rename a session (short_id is the 6-char prefix shown in `/sessions`) |
+| `/bind <short_id> <tmux_target>` | Bind a session to a tmux pane (e.g. `/bind abc123 mywork:0.0`) |
+| `/unbind <short_id>` | Clear a session's tmux binding |
+| `/bindings` | List current tmux bindings |
 
 Approval messages include inline **Approve** / **Deny** buttons — just tap.
 

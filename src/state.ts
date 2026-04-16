@@ -81,16 +81,15 @@ export function setSessionTask(sessionId: string, task: string): void {
   }
 }
 
-/**
- * Override a session's label. Accepts either the full session id or any
- * unique prefix. Returns the updated session, or an error code.
- */
-export function renameSession(
-  idOrPrefix: string,
-  newLabel: string,
-):
+export type ResolveResult =
   | { ok: true; session: Session }
-  | { ok: false; reason: "not_found" | "ambiguous" } {
+  | { ok: false; reason: "not_found" | "ambiguous" };
+
+/**
+ * Look up a session by full id or any unique prefix. Used by every command
+ * that takes a short_id from the user (`/bind`, `/unbind`, `/rename`).
+ */
+export function findSessionByPrefix(idOrPrefix: string): ResolveResult {
   const matches: Session[] = [];
   for (const session of sessions.values()) {
     if (session.id === idOrPrefix || session.id.startsWith(idOrPrefix)) {
@@ -100,8 +99,25 @@ export function renameSession(
   if (matches.length === 0) return { ok: false, reason: "not_found" };
   if (matches.length > 1) return { ok: false, reason: "ambiguous" };
   const [target] = matches as [Session];
-  target.label = newLabel;
   return { ok: true, session: target };
+}
+
+/**
+ * Override a session's label. Accepts either the full session id or any
+ * unique prefix. Returns the updated session, or an error code.
+ */
+export function renameSession(
+  idOrPrefix: string,
+  newLabel: string,
+): ResolveResult {
+  const found = findSessionByPrefix(idOrPrefix);
+  if (!found.ok) return found;
+  found.session.label = newLabel;
+  return found;
+}
+
+export function getSession(sessionId: string): Session | undefined {
+  return sessions.get(sessionId);
 }
 
 export function getActiveSessions(staleSeconds: number): Session[] {

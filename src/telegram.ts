@@ -2,12 +2,18 @@ import { Bot, InlineKeyboard } from "grammy";
 import { config } from "./config.js";
 import {
   attachTelegramMessage,
+  clearBinding,
+  findSessionByPrefix,
   getActiveSessions,
+  getAllBindings,
   getPendingApproval,
   getPendingApprovals,
+  getSession,
   renameSession,
   resolvePendingApproval,
+  setBinding,
 } from "./state.js";
+import { paneExists } from "./tmux.js";
 import type { PendingApproval, Session } from "./types.js";
 
 export function createBot(): Bot {
@@ -33,6 +39,9 @@ export function createBot(): Bot {
         "/approveall — approve everything pending",
         "/denyall — deny everything pending",
         "/rename <short_id> <label> — rename a session",
+        "/bind <short_id> <tmux_target> — bind a session to a tmux pane",
+        "/unbind <short_id> — clear a session's tmux binding",
+        "/bindings — list current tmux bindings",
       ].join("\n"),
     );
   });
@@ -92,6 +101,71 @@ export function createBot(): Bot {
       return;
     }
     await ctx.reply(`Renamed ${shortId(result.session.id)} to ${result.session.label}.`);
+  });
+
+  bot.command("bind", async (ctx) => {
+    const args = ctx.match?.trim() ?? "";
+    const [id, ...rest] = args.split(/\s+/);
+    const target = rest.join(" ").trim();
+    if (!id || !target) {
+      await ctx.reply("Usage: /bind <short_id> <tmux_target>");
+      return;
+    }
+    const found = findSessionByPrefix(id);
+    if (!found.ok) {
+      await ctx.reply(
+        found.reason === "not_found"
+          ? `No session matching ${id}.`
+          : `Short id ${id} matches multiple sessions — use more characters.`,
+      );
+      return;
+    }
+    // Verify the tmux target actually resolves before we record the binding.
+    // Recording a stale target would silently break /say later.
+    const exists = await paneExists(target);
+    if (!exists) {
+      await ctx.reply(
+        `tmux target ${target} not found. Check \`tmux list-panes -a\`.`,
+      );
+      return;
+    }
+    setBinding(found.session.id, target, "manual");
+    await ctx.reply(
+      `Bound ${shortId(found.session.id)} (${found.session.label}) → ${target}.`,
+    );
+  });
+
+  bot.command("unbind", async (ctx) => {
+    const id = (ctx.match?.trim() ?? "").split(/\s+/)[0] ?? "";
+    if (!id) {
+      await ctx.reply("Usage: /unbind <short_id>");
+      return;
+    }
+    const found = findSessionByPrefix(id);
+    if (!found.ok) {
+      await ctx.reply(
+        found.reason === "not_found"
+          ? `No session matching ${id}.`
+          : `Short id ${id} matches multiple sessions — use more characters.`,
+      );
+      return;
+    }
+    const removed = clearBinding(found.session.id);
+    await ctx.reply(
+      removed
+        ? `Cleared binding for ${shortId(found.session.id)} (${found.session.label}).`
+        : `${shortId(found.session.id)} had no binding.`,
+    );
+  });
+
+  bot.command("bindings", async (ctx) => {
+    const all = getAllBindings();
+    if (all.length === 0) {
+      await ctx.reply("No tmux bindings.");
+      return;
+    }
+    const lines = all.map((b) => renderBindingLine(b.sessionId, b.binding));
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
   });
 
   bot.command("pending", async (ctx) => {
@@ -442,6 +516,21 @@ export function renderSessionLine(s: Session): string {
     parts.push(`  Task: ${truncate(s.currentTask, 120)}`);
   }
   return parts.join("\n");
+}
+
+export function renderBindingLine(
+  sessionId: string,
+  binding: { target: string; source: "auto" | "manual"; boundAt: number },
+): string {
+  // Look up the session for a friendly label; fall back to the raw id if the
+  // session was pruned but the binding hasn't been cleaned up yet.
+  const session = getSession(sessionId);
+  const label = session ? session.label : "(unknown)";
+  const ago = formatAge(Date.now() - binding.boundAt);
+  return (
+    `<code>${escapeHtml(shortId(sessionId))}</code> ${escapeHtml(label)} → ` +
+    `<code>${escapeHtml(binding.target)}</code> (${binding.source}, ${ago} ago)`
+  );
 }
 
 export function cwdLabel(cwd: string): string {

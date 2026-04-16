@@ -8,12 +8,14 @@ import {
   consumePhonePromptPending,
   correlationKey,
   findPendingByCorrelation,
+  findSessionByPrefix,
   getActiveSessions,
   getAllBindings,
   getBinding,
   getBindingByTarget,
   getPendingApproval,
   getPendingApprovals,
+  getSession,
   hasAttemptedAutoBind,
   markAutoBindAttempted,
   markPhonePromptPending,
@@ -435,6 +437,49 @@ describe("auto-bind attempt tracking", () => {
     markAutoBindAttempted("sess-1");
     __resetStateForTests();
     assert.equal(hasAttemptedAutoBind("sess-1"), false);
+  });
+});
+
+describe("findSessionByPrefix", () => {
+  it("matches by full id", () => {
+    upsertSession("claude", "abc123def", "/a");
+    const result = findSessionByPrefix("abc123def");
+    assert.ok(result.ok);
+    assert.equal(result.ok && result.session.id, "abc123def");
+  });
+
+  it("matches by unique prefix", () => {
+    upsertSession("claude", "abc123def", "/a");
+    upsertSession("claude", "xyz987qrs", "/b");
+    const result = findSessionByPrefix("abc");
+    assert.ok(result.ok);
+    assert.equal(result.ok && result.session.id, "abc123def");
+  });
+
+  it("returns not_found when nothing matches", () => {
+    upsertSession("claude", "abc123", "/a");
+    const result = findSessionByPrefix("zzz");
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.reason, "not_found");
+  });
+
+  it("returns ambiguous when prefix matches multiple", () => {
+    upsertSession("claude", "abc111", "/a");
+    upsertSession("claude", "abc222", "/b");
+    const result = findSessionByPrefix("abc");
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.reason, "ambiguous");
+  });
+});
+
+describe("getSession", () => {
+  it("returns the session for a known id", () => {
+    upsertSession("claude", "s1", "/a");
+    assert.equal(getSession("s1")?.id, "s1");
+  });
+
+  it("returns undefined for unknown ids", () => {
+    assert.equal(getSession("nope"), undefined);
   });
 });
 

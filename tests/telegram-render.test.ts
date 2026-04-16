@@ -6,6 +6,7 @@ import {
   escapeHtml,
   formatAge,
   renderApprovalMessage,
+  renderBindingLine,
   renderResolvedLocallyMessage,
   renderResolvedMessage,
   renderSessionLine,
@@ -17,6 +18,7 @@ import {
   summarizeTool,
   truncate,
 } from "../src/telegram.js";
+import { __resetStateForTests, upsertSession } from "../src/state.js";
 import type { PendingApproval, Session } from "../src/types.js";
 
 function makeApproval(overrides: Partial<PendingApproval> = {}): PendingApproval {
@@ -347,5 +349,50 @@ describe("renderSessionLine", () => {
     assert.match(withTask, /Task: writing tests/);
     const without = renderSessionLine(makeSession());
     assert.doesNotMatch(without, /Task:/);
+  });
+});
+
+describe("renderBindingLine", () => {
+  it("includes short id, session label, target, source, and age", () => {
+    __resetStateForTests();
+    upsertSession("claude", "abc123def456", "/Users/a/proj");
+    const line = renderBindingLine("abc123def456", {
+      target: "main:0.0",
+      source: "manual",
+      boundAt: Date.now(),
+    });
+    assert.match(line, /abc123/);
+    assert.match(line, /proj/); // label derives from cwd basename
+    assert.match(line, /main:0\.0/);
+    assert.match(line, /manual/);
+    assert.match(line, /ago/);
+  });
+
+  it("falls back to '(unknown)' when the session has been pruned", () => {
+    __resetStateForTests();
+    const line = renderBindingLine("orphan-id", {
+      target: "main:0.0",
+      source: "auto",
+      boundAt: Date.now(),
+    });
+    assert.match(line, /\(unknown\)/);
+    assert.match(line, /auto/);
+  });
+
+  it("HTML-escapes the target, label, and short id", () => {
+    __resetStateForTests();
+    upsertSession("claude", "abc<id>", "/<weird>");
+    const line = renderBindingLine("abc<id>", {
+      target: "<bad>:0",
+      source: "manual",
+      boundAt: Date.now(),
+    });
+    assert.doesNotMatch(line, /<bad>/);
+    assert.doesNotMatch(line, /<weird>/);
+    assert.match(line, /&lt;bad&gt;/);
+    assert.match(line, /&lt;weird&gt;/);
+    // shortId truncates to 6 chars so the id's closing `>` is sliced off,
+    // but the opening `<` must still be escaped.
+    assert.match(line, /abc&lt;id/);
   });
 });
