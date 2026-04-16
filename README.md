@@ -12,7 +12,8 @@ You start an agent running. You walk away to grab food / go to the gym / take th
 
 ```bash
 cp .env.example .env
-# Fill in TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+# Fill in TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SHIRO_SHARED_SECRET
+chmod 600 .env
 npm install
 npm run dev
 ```
@@ -27,9 +28,21 @@ Then hook up whichever agent(s) you use — see below.
 4. Find `"chat":{"id": <number>` in the JSON response — that's your **chat ID**.
 5. Put both values in `.env`.
 
+## Generating the shared secret
+
+Every hook request to Shiro's HTTP server must include an `Authorization: Bearer <secret>` header. Without this, any local process (including a malicious webpage making a `fetch()` to localhost) could spoof hook calls.
+
+Generate a secret:
+
+```bash
+openssl rand -hex 32
+```
+
+Put it in `.env` as `SHIRO_SHARED_SECRET=<value>` and include the same value in your Claude Code / Codex hook configuration (see below). `chmod 600 .env` to keep it out of reach of other users.
+
 ## Claude Code
 
-Add to `~/.claude/settings.json`:
+Add to `~/.claude/settings.json` (replace `<SHIRO_SHARED_SECRET>` with the value you put in `.env`):
 
 ```json
 {
@@ -41,7 +54,10 @@ Add to `~/.claude/settings.json`:
           {
             "type": "http",
             "url": "http://127.0.0.1:7777/hooks/claude/permission",
-            "timeout": 60
+            "timeout": 60,
+            "headers": {
+              "Authorization": "Bearer <SHIRO_SHARED_SECRET>"
+            }
           }
         ]
       }
@@ -50,7 +66,7 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-Open a new Claude Code session and the hook will route permission requests to Telegram.
+Run `chmod 600 ~/.claude/settings.json` so other users can't read the secret. Open a new Claude Code session and the hook will route permission requests to Telegram.
 
 ## Codex
 
@@ -81,7 +97,7 @@ Create `~/.codex/hooks.json` (update the path to match where you cloned Shiro):
 }
 ```
 
-The shell bridge auto-approves common read-only commands (`ls`, `cat`, `git status`, etc.) locally, so Telegram only pings you for commands that actually matter.
+The shell bridge sources Shiro's `.env` to pick up `SHIRO_SHARED_SECRET` and automatically sends the `Authorization` header. It also auto-approves common read-only commands (`ls`, `cat`, `git status`, etc.) locally, so Telegram only pings you for commands that actually matter.
 
 ## Telegram commands
 
@@ -113,8 +129,10 @@ SESSION_STALE_SECONDS=1800
 ## Security notes
 
 - HTTP server binds to `127.0.0.1` only — not reachable from the network.
-- The bot only responds to the chat ID you configured; all other senders are ignored.
+- Every hook request requires an `Authorization: Bearer <shared secret>` header. Requests without a matching secret are rejected with 401. This defeats malicious webpages making `fetch()` to localhost.
+- The Telegram bot only responds to the chat ID you configured; all other senders are ignored.
 - Fails closed: if approval times out or the bot is unreachable, the agent request is denied.
+- `chmod 600` on `.env` and `~/.claude/settings.json` keeps the shared secret from being read by other users on the machine.
 
 ## Roadmap
 

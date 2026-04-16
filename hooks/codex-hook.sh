@@ -8,9 +8,22 @@
 
 set -uo pipefail
 
-SERVER_URL="${AGENT_CONTROL_PLANE_URL:-http://127.0.0.1:7777}"
+# Resolve Shiro's directory from this script's location so we can source .env.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHIRO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Load Shiro's .env to pick up SHIRO_SHARED_SECRET (and optional overrides).
+# `set -a` auto-exports every variable the source assigns.
+if [[ -f "$SHIRO_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$SHIRO_DIR/.env"
+  set +a
+fi
+
+SERVER_URL="${SHIRO_SERVER_URL:-http://127.0.0.1:7777}"
 ENDPOINT="${SERVER_URL}/hooks/codex/pretool"
-TIMEOUT_SECONDS="${AGENT_CONTROL_PLANE_TIMEOUT:-150}"
+TIMEOUT_SECONDS="${SHIRO_HOOK_TIMEOUT:-150}"
 
 INPUT="$(cat)"
 
@@ -65,8 +78,13 @@ if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "bash" || "$TOOL_NAME" == "shell
 fi
 
 # Fall through: forward to the control plane for human approval.
+if [[ -z "${SHIRO_SHARED_SECRET:-}" ]]; then
+  deny "shared_secret_missing"
+fi
+
 RESPONSE="$(printf '%s' "$INPUT" | curl -sS -X POST \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer ${SHIRO_SHARED_SECRET}" \
   --data-binary @- \
   --max-time "$TIMEOUT_SECONDS" \
   "$ENDPOINT" 2>/dev/null)"

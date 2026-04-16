@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { Bot } from "grammy";
 import { config } from "./config.js";
@@ -21,8 +22,18 @@ export function createHttpServer(bot: Bot): http.Server {
   return http.createServer(async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/health") {
+        // Unauthenticated — safe to ping for liveness checks
         writeJson(res, 200, { ok: true });
         return;
+      }
+
+      // Every hook endpoint requires the shared secret. Reject before any
+      // body parsing so we never accept untrusted payloads.
+      if (req.url?.startsWith("/hooks/")) {
+        if (!isAuthorized(req)) {
+          writeJson(res, 401, { error: "unauthorized" });
+          return;
+        }
       }
 
       if (req.method === "POST" && req.url === "/hooks/claude/permission") {
@@ -43,6 +54,20 @@ export function createHttpServer(bot: Bot): http.Server {
       }
     }
   });
+}
+
+function isAuthorized(req: IncomingMessage): boolean {
+  const header = req.headers["authorization"];
+  if (typeof header !== "string") return false;
+  const prefix = "Bearer ";
+  if (!header.startsWith(prefix)) return false;
+  const provided = header.slice(prefix.length).trim();
+  const expected = config.sharedSecret;
+  // Use timingSafeEqual to avoid leaking the secret length via timing.
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(expected);
+  if (providedBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(providedBuf, expectedBuf);
 }
 
 async function handleClaudePermission(

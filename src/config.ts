@@ -21,6 +21,9 @@ function optionalInt(name: string, fallback: number): number {
 export const config = {
   botToken: required("TELEGRAM_BOT_TOKEN"),
   chatId: Number.parseInt(required("TELEGRAM_CHAT_ID"), 10),
+  // Shared secret required on every hook request. Any POST to /hooks/*
+  // without a matching Authorization: Bearer header is rejected.
+  sharedSecret: required("SHIRO_SHARED_SECRET"),
   httpPort: optionalInt("HTTP_PORT", 7777),
   // Auto-deny safety margin (seconds) — must be less than the hook's timeout
   claudeTimeoutSeconds: optionalInt("CLAUDE_TIMEOUT_SECONDS", 55),
@@ -31,4 +34,10 @@ export const config = {
 
 if (Number.isNaN(config.chatId)) {
   throw new Error("TELEGRAM_CHAT_ID must be a number");
+}
+
+if (config.sharedSecret.length < 16) {
+  throw new Error(
+    "SHIRO_SHARED_SECRET must be at least 16 characters. Generate one with: openssl rand -hex 32",
+  );
 }
