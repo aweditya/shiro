@@ -17,9 +17,15 @@ const sessions = new Map<string, Session>();
 const pendingApprovals = new Map<string, PendingApproval>();
 const recentApprovals = new Map<string, RecentApproval>();
 
+/** Test-only: clear all in-memory state so cases stay hermetic. */
+export function __resetStateForTests(): void {
+  sessions.clear();
+  pendingApprovals.clear();
+  recentApprovals.clear();
+}
+
 export interface RecentApproval {
   approval: PendingApproval;
-  decision: ApprovalDecision;
   resolvedAt: number;
 }
 
@@ -40,15 +46,10 @@ export function upsertSession(
     agent,
     label: path.basename(cwd) || cwd,
     cwd,
-    firstSeen: now,
     lastSeen: now,
   };
   sessions.set(sessionId, session);
   return session;
-}
-
-export function getSession(sessionId: string): Session | undefined {
-  return sessions.get(sessionId);
 }
 
 export function getActiveSessions(staleSeconds: number): Session[] {
@@ -106,7 +107,7 @@ export function resolvePendingApproval(
   // Record for potential PostToolUse correlation. Only worth stashing if a
   // Telegram message exists to edit later.
   if (approval.telegramMessageId !== undefined) {
-    recordRecentApproval(approval, decision);
+    recordRecentApproval(approval);
   }
   approval.resolve(decision);
   return approval;
@@ -167,10 +168,7 @@ export function popRecentApproval(
   return recent;
 }
 
-function recordRecentApproval(
-  approval: PendingApproval,
-  decision: ApprovalDecision,
-): void {
+function recordRecentApproval(approval: PendingApproval): void {
   pruneRecentApprovals();
   const key = correlationKey(
     approval.agent,
@@ -180,7 +178,6 @@ function recordRecentApproval(
   );
   recentApprovals.set(key, {
     approval,
-    decision,
     resolvedAt: Date.now(),
   });
 }

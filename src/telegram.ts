@@ -234,7 +234,7 @@ async function editResolvedMessage(
   }
 }
 
-function renderApprovalMessage(approval: PendingApproval): string {
+export function renderApprovalMessage(approval: PendingApproval): string {
   const label = cwdLabel(approval.cwd);
   const toolSummary = summarizeTool(approval.toolName, approval.toolInput);
   return [
@@ -245,7 +245,7 @@ function renderApprovalMessage(approval: PendingApproval): string {
   ].join("\n");
 }
 
-function renderResolvedMessage(
+export function renderResolvedMessage(
   approval: PendingApproval,
   approved: boolean,
 ): string {
@@ -260,7 +260,7 @@ function renderResolvedMessage(
   ].join("\n");
 }
 
-function renderTimeoutMessage(approval: PendingApproval): string {
+export function renderTimeoutMessage(approval: PendingApproval): string {
   const label = cwdLabel(approval.cwd);
   const toolSummary = summarizeTool(approval.toolName, approval.toolInput);
   // Timeout could mean: user didn't respond anywhere, OR user responded
@@ -275,7 +275,7 @@ function renderTimeoutMessage(approval: PendingApproval): string {
   ].join("\n");
 }
 
-function renderResolvedLocallyMessage(approval: PendingApproval): string {
+export function renderResolvedLocallyMessage(approval: PendingApproval): string {
   const label = cwdLabel(approval.cwd);
   const toolSummary = summarizeTool(approval.toolName, approval.toolInput);
   return [
@@ -286,7 +286,7 @@ function renderResolvedLocallyMessage(approval: PendingApproval): string {
   ].join("\n");
 }
 
-function renderToolRanMessage(
+export function renderToolRanMessage(
   approval: PendingApproval,
   toolResponse: Record<string, unknown> | null,
 ): string {
@@ -327,13 +327,13 @@ function agentTag(agent: "claude" | "codex"): string {
   return agent === "claude" ? "Claude" : "Codex";
 }
 
-function cwdLabel(cwd: string): string {
+export function cwdLabel(cwd: string): string {
   const parts = cwd.split("/").filter(Boolean);
   if (parts.length <= 2) return cwd;
   return parts.slice(-2).join("/");
 }
 
-function summarizeTool(
+export function summarizeTool(
   toolName: string,
   toolInput: Record<string, unknown>,
 ): string {
@@ -364,7 +364,7 @@ function truncate(s: string, max: number): string {
   return `${s.slice(0, max)}\n... [truncated ${s.length - max} chars]`;
 }
 
-function formatAge(ms: number): string {
+export function formatAge(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -373,7 +373,7 @@ function formatAge(ms: number): string {
   return `${hours}h`;
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

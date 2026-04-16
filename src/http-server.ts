@@ -248,9 +248,6 @@ function awaitDecision(args: AwaitDecisionArgs): Promise<ApprovalDecision> {
       });
       if (resolved) {
         void notifyTimeout(args.bot, resolved);
-      } else {
-        // Already resolved elsewhere
-        settle({ approved: false, reason: "timeout" });
       }
     }, args.timeoutSeconds * 1000);
 

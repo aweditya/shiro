@@ -5,7 +5,6 @@ export interface Session {
   agent: AgentKind;
   label: string;
   cwd: string;
-  firstSeen: number;
   lastSeen: number;
 }
 
@@ -33,7 +32,6 @@ export interface ClaudePermissionRequestInput {
   hook_event_name: "PermissionRequest";
   tool_name: string;
   tool_input: Record<string, unknown>;
-  permission_suggestions?: unknown[];
 }
 
 export interface CodexPreToolUseInput {
@@ -42,7 +40,6 @@ export interface CodexPreToolUseInput {
   hook_event_name: "PreToolUse";
   tool_name: string;
   tool_input: Record<string, unknown>;
-  turn_id?: string;
 }
 
 export interface ClaudePostToolUseInput {
