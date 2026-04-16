@@ -92,6 +92,21 @@ Add to `~/.claude/settings.json` (replace `<SHIRO_SHARED_SECRET>` with the value
           }
         ]
       }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "rate_limit",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hooks/claude/stopfailure",
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer <SHIRO_SHARED_SECRET>"
+            }
+          }
+        ]
+      }
     ]
   }
 }
@@ -99,9 +114,10 @@ Add to `~/.claude/settings.json` (replace `<SHIRO_SHARED_SECRET>` with the value
 
 Run `chmod 600 ~/.claude/settings.json` so other users can't read the secret. Open a new Claude Code session and the hook will route permission requests to Telegram.
 
-The `PostToolUse` and `UserPromptSubmit` hooks are optional but recommended:
+The `PostToolUse`, `UserPromptSubmit`, and `StopFailure` hooks are optional but recommended:
 - `PostToolUse` lets Shiro update a stale message to "Approved in terminal" when you approve from your laptop (instead of leaving it at "No Telegram response").
 - `UserPromptSubmit` captures your latest prompt as the session's current task, so approval notifications and `/status` / `/sessions` can show what each session is actually doing.
+- `StopFailure` (with `matcher: "rate_limit"`) pings you on Telegram the moment Claude hits a rate limit, with the session label and the retry-after message. Swap `matcher` for `""` to also get pinged on auth, billing, and server errors.
 
 ## Codex
 

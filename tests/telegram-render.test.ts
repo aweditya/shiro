@@ -9,6 +9,7 @@ import {
   renderResolvedLocallyMessage,
   renderResolvedMessage,
   renderSessionLine,
+  renderStopFailureMessage,
   renderTimeoutMessage,
   renderToolRanMessage,
   shortId,
@@ -193,6 +194,57 @@ describe("render* functions", () => {
     );
     assert.doesNotMatch(msg, /<img/);
     assert.match(msg, /&lt;img/);
+  });
+});
+
+describe("renderStopFailureMessage", () => {
+  function makeSession(overrides: Partial<Session> = {}): Session {
+    return {
+      id: "sess123",
+      agent: "claude",
+      label: "shiro",
+      cwd: "/Users/alice/projects/shiro",
+      lastSeen: Date.now(),
+      ...overrides,
+    };
+  }
+
+  it("includes error_type, agent tag, and cwd label", () => {
+    const msg = renderStopFailureMessage(
+      makeSession(),
+      "rate_limit",
+      "Rate limit exceeded. Please retry after 30 seconds.",
+    );
+    assert.match(msg, /Stopped: rate_limit/);
+    assert.match(msg, /Claude/);
+    assert.match(msg, /projects\/shiro/);
+    assert.match(msg, /retry after 30 seconds/);
+  });
+
+  it("omits the error message block when empty", () => {
+    const msg = renderStopFailureMessage(makeSession(), "unknown", "");
+    assert.match(msg, /Stopped: unknown/);
+    assert.doesNotMatch(msg, /<pre>/);
+  });
+
+  it("includes Task line when session has currentTask", () => {
+    const msg = renderStopFailureMessage(
+      makeSession({ currentTask: "refactor auth middleware" }),
+      "rate_limit",
+      "limit hit",
+    );
+    assert.match(msg, /Task: refactor auth middleware/);
+  });
+
+  it("HTML-escapes error_type and error_message", () => {
+    const msg = renderStopFailureMessage(
+      makeSession(),
+      "<weird>",
+      "<script>alert(1)</script>",
+    );
+    assert.doesNotMatch(msg, /<script>/);
+    assert.match(msg, /&lt;script&gt;/);
+    assert.match(msg, /&lt;weird&gt;/);
   });
 });
 

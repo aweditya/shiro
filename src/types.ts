@@ -61,3 +61,12 @@ export interface ClaudeUserPromptSubmitInput {
   hook_event_name: "UserPromptSubmit";
   prompt: string;
 }
+
+export interface ClaudeStopFailureInput {
+  session_id: string;
+  cwd: string;
+  hook_event_name: "StopFailure";
+  /** One of: rate_limit, authentication_failed, billing_error, invalid_request, server_error, max_output_tokens, unknown. */
+  error_type: string;
+  error_message: string;
+}

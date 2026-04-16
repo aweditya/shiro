@@ -378,6 +378,72 @@ describe("POST /hooks/claude/userprompt", () => {
   });
 });
 
+describe("POST /hooks/claude/stopfailure", () => {
+  it("sends a Telegram notification carrying error_type and error_message", async () => {
+    const res = await fetch(`${baseUrl}/hooks/claude/stopfailure`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-stopfail",
+        cwd: "/tmp/proj",
+        hook_event_name: "StopFailure",
+        error_type: "rate_limit",
+        error_message: "Rate limit exceeded. Please retry after 30 seconds.",
+      }),
+    });
+    assert.equal(res.status, 200);
+    await waitFor(() => calls.sendMessage.length === 1);
+    const [sent] = calls.sendMessage;
+    assert.match(sent!.text, /rate_limit/);
+    assert.match(sent!.text, /retry after 30 seconds/);
+  });
+
+  it("returns 400 when error_type is missing", async () => {
+    const res = await fetch(`${baseUrl}/hooks/claude/stopfailure`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-bad",
+        cwd: "/tmp",
+        hook_event_name: "StopFailure",
+      }),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("requires auth", async () => {
+    const res = await fetch(`${baseUrl}/hooks/claude/stopfailure`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s",
+        cwd: "/tmp",
+        hook_event_name: "StopFailure",
+        error_type: "rate_limit",
+        error_message: "x",
+      }),
+    });
+    assert.equal(res.status, 401);
+  });
+
+  it("tracks the session so it shows up in /sessions", async () => {
+    const res = await fetch(`${baseUrl}/hooks/claude/stopfailure`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-tracked",
+        cwd: "/tmp/foo",
+        hook_event_name: "StopFailure",
+        error_type: "rate_limit",
+        error_message: "",
+      }),
+    });
+    assert.equal(res.status, 200);
+    const active = getActiveSessions(60);
+    assert.ok(active.some((s) => s.id === "s-tracked"));
+  });
+});
+
 describe("POST /hooks/codex/pretool", () => {
   it("returns permissionDecision=allow when resolved via Telegram", async () => {
     const pending = fetch(`${baseUrl}/hooks/codex/pretool`, {

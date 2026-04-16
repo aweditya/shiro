@@ -222,6 +222,23 @@ export async function notifyResolvedLocally(
   }
 }
 
+export async function notifyStopFailure(
+  bot: Bot,
+  session: Session,
+  errorType: string,
+  errorMessage: string,
+): Promise<void> {
+  try {
+    await bot.api.sendMessage(
+      config.chatId,
+      renderStopFailureMessage(session, errorType, errorMessage),
+      { parse_mode: "HTML" },
+    );
+  } catch (err) {
+    console.error("Failed to send stop failure notification:", err);
+  }
+}
+
 export async function notifyToolRan(
   bot: Bot,
   approval: PendingApproval,
@@ -314,6 +331,24 @@ export function renderResolvedLocallyMessage(approval: PendingApproval): string 
     "",
     `<pre>${escapeHtml(toolSummary)}</pre>`,
   ].join("\n");
+}
+
+export function renderStopFailureMessage(
+  session: Session,
+  errorType: string,
+  errorMessage: string,
+): string {
+  const label = cwdLabel(session.cwd);
+  const lines = [
+    `<b>Stopped: ${escapeHtml(errorType)}</b> · [${agentTag(session.agent)}] <code>${escapeHtml(label)}</code>`,
+  ];
+  if (session.currentTask) {
+    lines.push(`<i>Task: ${escapeHtml(truncate(session.currentTask, 200))}</i>`);
+  }
+  if (errorMessage) {
+    lines.push("", `<pre>${escapeHtml(truncate(errorMessage, 400))}</pre>`);
+  }
+  return lines.join("\n");
 }
 
 export function renderToolRanMessage(

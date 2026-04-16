@@ -12,6 +12,7 @@ import {
 } from "./state.js";
 import {
   notifyResolvedLocally,
+  notifyStopFailure,
   notifyTimeout,
   notifyToolRan,
   sendApprovalMessage,
@@ -20,6 +21,7 @@ import type {
   ApprovalDecision,
   ClaudePermissionRequestInput,
   ClaudePostToolUseInput,
+  ClaudeStopFailureInput,
   ClaudeUserPromptSubmitInput,
   CodexPreToolUseInput,
 } from "./types.js";
@@ -54,6 +56,11 @@ export function createHttpServer(bot: Bot): http.Server {
 
       if (req.method === "POST" && req.url === "/hooks/claude/userprompt") {
         await handleClaudeUserPrompt(req, res);
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/hooks/claude/stopfailure") {
+        await handleClaudeStopFailure(req, res, bot);
         return;
       }
 
@@ -189,6 +196,26 @@ async function handleClaudeUserPrompt(
   }
   upsertSession("claude", body.session_id, body.cwd ?? "");
   setSessionTask(body.session_id, body.prompt);
+  writeJson(res, 200, { ok: true });
+}
+
+async function handleClaudeStopFailure(
+  req: IncomingMessage,
+  res: ServerResponse,
+  bot: Bot,
+): Promise<void> {
+  const body = await readJson<ClaudeStopFailureInput>(req);
+  if (!body || !body.session_id || !body.error_type) {
+    writeJson(res, 400, { error: "invalid_payload" });
+    return;
+  }
+  const session = upsertSession("claude", body.session_id, body.cwd ?? "");
+  void notifyStopFailure(
+    bot,
+    session,
+    body.error_type,
+    body.error_message ?? "",
+  );
   writeJson(res, 200, { ok: true });
 }
 
