@@ -190,8 +190,17 @@ Both shell bridges source Shiro's `.env` to pick up `SHIRO_SHARED_SECRET` and se
 | `/bind <short_id> <tmux_target>` | Bind a session to a tmux pane (e.g. `/bind abc123 mywork:0.0`) |
 | `/unbind <short_id>` | Clear a session's tmux binding |
 | `/bindings` | List current tmux bindings |
+| `/say <short_id> <message>` | Type a prompt into a bound Claude session — reply arrives via the Stop hook |
 
 Approval messages include inline **Approve** / **Deny** buttons — just tap.
+
+### Driving a session from your phone (`/say`)
+
+`/say` types a prompt directly into a running Claude session via tmux, so you can keep an agent moving while you're away from your laptop. You need the agent running inside a tmux pane (just launch Claude inside `tmux` — no special wrapper required).
+
+When Shiro sees a hook from a Claude session whose `cwd` matches exactly one tmux pane running an agent, it auto-binds. Use `/bindings` to inspect, `/bind` to override, `/unbind` to clear. Once bound, `/say <short_id> <message>` sends the message and Claude's reply comes back via the Stop hook prefixed with **Reply to /say** so it stands out from spontaneous turn completions. The Stop hook bypasses the usual duration filter for phone-driven turns.
+
+Codex two-way support is deferred — Codex doesn't have a Stop-hook equivalent yet, so there's no path to route the reply back.
 
 ## How networking works
 

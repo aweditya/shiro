@@ -11,10 +11,12 @@ import {
 } from "../src/http-server.js";
 import {
   __resetStateForTests,
+  consumePhonePromptPending,
   getActiveSessions,
   getBinding,
   getPendingApprovals,
   hasAttemptedAutoBind,
+  markPhonePromptPending,
   resolvePendingApproval,
   setBinding,
 } from "../src/state.js";
@@ -613,6 +615,60 @@ describe("POST /hooks/claude/stop", () => {
     assert.equal(res.status, 200);
     const active = getActiveSessions(60);
     assert.ok(active.some((s) => s.id === "s-track" && s.agent === "claude"));
+  });
+
+  it("uses 'Reply to /say' header when phone-pending was flagged", async () => {
+    markPhonePromptPending("s-phone");
+    const res = await fetch(`${baseUrl}/hooks/claude/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-phone",
+        cwd: "/tmp/proj",
+        hook_event_name: "Stop",
+        last_assistant_message: "done with the thing",
+      }),
+    });
+    assert.equal(res.status, 200);
+    await waitFor(() => calls.sendMessage.length === 1);
+    assert.match(calls.sendMessage[0]!.text, /Reply to \/say/);
+    assert.equal(
+      consumePhonePromptPending("s-phone"),
+      false,
+      "flag should be consumed by the Stop hook",
+    );
+  });
+
+  it("phone-pending bypasses the duration filter (test env already has 0)", async () => {
+    // STOP_NOTIFY_MIN_SECONDS=0 in env-setup so the filter is off here either
+    // way. But we can verify no double-fire: the flag must be consumed so a
+    // *second* Stop in the same session doesn't get the prefix again.
+    markPhonePromptPending("s-once");
+    await fetch(`${baseUrl}/hooks/claude/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-once",
+        cwd: "/tmp",
+        hook_event_name: "Stop",
+        last_assistant_message: "first",
+      }),
+    });
+    await waitFor(() => calls.sendMessage.length === 1);
+    await fetch(`${baseUrl}/hooks/claude/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-once",
+        cwd: "/tmp",
+        hook_event_name: "Stop",
+        last_assistant_message: "second",
+      }),
+    });
+    await waitFor(() => calls.sendMessage.length === 2);
+    assert.match(calls.sendMessage[0]!.text, /Reply to \/say/);
+    assert.match(calls.sendMessage[1]!.text, /<b>Done<\/b>/);
+    assert.doesNotMatch(calls.sendMessage[1]!.text, /Reply to \/say/);
   });
 });
 

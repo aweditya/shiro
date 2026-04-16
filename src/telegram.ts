@@ -6,14 +6,16 @@ import {
   findSessionByPrefix,
   getActiveSessions,
   getAllBindings,
+  getBinding,
   getPendingApproval,
   getPendingApprovals,
   getSession,
+  markPhonePromptPending,
   renameSession,
   resolvePendingApproval,
   setBinding,
 } from "./state.js";
-import { paneExists } from "./tmux.js";
+import { paneExists, sendKeys } from "./tmux.js";
 import type { PendingApproval, Session } from "./types.js";
 
 export function createBot(): Bot {
@@ -42,6 +44,7 @@ export function createBot(): Bot {
         "/bind <short_id> <tmux_target> — bind a session to a tmux pane",
         "/unbind <short_id> — clear a session's tmux binding",
         "/bindings — list current tmux bindings",
+        "/say <short_id> <message> — type a prompt into a bound session",
       ].join("\n"),
     );
   });
@@ -168,6 +171,48 @@ export function createBot(): Bot {
     await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
   });
 
+  bot.command("say", async (ctx) => {
+    const args = ctx.match?.trim() ?? "";
+    const [id, ...rest] = args.split(/\s+/);
+    const message = rest.join(" ").trim();
+    if (!id || !message) {
+      await ctx.reply("Usage: /say <short_id> <message>");
+      return;
+    }
+    const found = findSessionByPrefix(id);
+    if (!found.ok) {
+      await ctx.reply(
+        found.reason === "not_found"
+          ? `No session matching ${id}.`
+          : `Short id ${id} matches multiple sessions — use more characters.`,
+      );
+      return;
+    }
+    const result = await routeSayMessage(found.session.id, message);
+    switch (result.kind) {
+      case "no_binding":
+        await ctx.reply(
+          `${shortId(found.session.id)} has no tmux binding. Run /bind ${shortId(found.session.id)} <tmux_target> first.`,
+        );
+        return;
+      case "stale":
+        await ctx.reply(
+          `tmux target ${result.target} is gone — cleared the binding. Run /bind to set a new one.`,
+        );
+        return;
+      case "send_failed":
+        await ctx.reply(
+          `Failed to send to ${result.target}: ${result.reason}`,
+        );
+        return;
+      case "sent":
+        await ctx.reply(
+          `Sent to ${shortId(found.session.id)} (${found.session.label}). Reply will arrive when the turn completes.`,
+        );
+        return;
+    }
+  });
+
   bot.command("pending", async (ctx) => {
     const pending = getPendingApprovals();
     if (pending.length === 0) {
@@ -240,6 +285,49 @@ export function createBot(): Bot {
   });
 
   return bot;
+}
+
+export type SayResult =
+  | { kind: "no_binding" }
+  | { kind: "stale"; target: string }
+  | { kind: "send_failed"; target: string; reason: string }
+  | { kind: "sent"; target: string };
+
+interface TmuxOps {
+  paneExists: (target: string) => Promise<boolean>;
+  sendKeys: (target: string, message: string) => Promise<void>;
+}
+
+const defaultTmuxOps: TmuxOps = { paneExists, sendKeys };
+
+/**
+ * Drive the /say flow for a resolved session id. Pure orchestration: takes
+ * the tmux ops as a dep so tests can drive every branch without shelling out.
+ *
+ * Side effects on success: phonePromptPending is set so the next Stop hook
+ * for this session bypasses the duration filter and gets the "Reply to /say"
+ * prefix. On stale-pane: the binding is cleared so a future hook can rebind.
+ */
+export async function routeSayMessage(
+  sessionId: string,
+  message: string,
+  ops: TmuxOps = defaultTmuxOps,
+): Promise<SayResult> {
+  const binding = getBinding(sessionId);
+  if (!binding) return { kind: "no_binding" };
+  const exists = await ops.paneExists(binding.target);
+  if (!exists) {
+    clearBinding(sessionId);
+    return { kind: "stale", target: binding.target };
+  }
+  try {
+    await ops.sendKeys(binding.target, message);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "unknown error";
+    return { kind: "send_failed", target: binding.target, reason };
+  }
+  markPhonePromptPending(sessionId);
+  return { kind: "sent", target: binding.target };
 }
 
 export async function sendApprovalMessage(
@@ -317,11 +405,12 @@ export async function notifyStopped(
   bot: Bot,
   session: Session,
   lastAssistantMessage: string,
+  phoneDriven = false,
 ): Promise<void> {
   try {
     await bot.api.sendMessage(
       config.chatId,
-      renderStoppedMessage(session, lastAssistantMessage),
+      renderStoppedMessage(session, lastAssistantMessage, phoneDriven),
       { parse_mode: "HTML" },
     );
   } catch (err) {
@@ -444,10 +533,12 @@ export function renderStopFailureMessage(
 export function renderStoppedMessage(
   session: Session,
   lastAssistantMessage: string,
+  phoneDriven = false,
 ): string {
   const label = cwdLabel(session.cwd);
+  const header = phoneDriven ? "Reply to /say" : "Done";
   const lines = [
-    `<b>Done</b> · [${agentTag(session.agent)}] <code>${escapeHtml(label)}</code>`,
+    `<b>${header}</b> · [${agentTag(session.agent)}] <code>${escapeHtml(label)}</code>`,
   ];
   if (session.currentTask) {
     lines.push(`<i>Task: ${escapeHtml(truncate(session.currentTask, 200))}</i>`);

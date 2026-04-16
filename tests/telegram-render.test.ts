@@ -302,6 +302,18 @@ describe("renderStoppedMessage", () => {
     assert.ok(msg.length < long.length);
     assert.match(msg, /truncated/);
   });
+
+  it("uses 'Reply to /say' header when phoneDriven=true", () => {
+    const msg = renderStoppedMessage(makeSession(), "ok", true);
+    assert.match(msg, /Reply to \/say/);
+    assert.doesNotMatch(msg, /<b>Done<\/b>/);
+  });
+
+  it("defaults to 'Done' header when phoneDriven flag omitted", () => {
+    const msg = renderStoppedMessage(makeSession(), "ok");
+    assert.match(msg, /<b>Done<\/b>/);
+    assert.doesNotMatch(msg, /Reply to \/say/);
+  });
 });
 
 describe("shortId", () => {

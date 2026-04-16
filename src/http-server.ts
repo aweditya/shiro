@@ -4,6 +4,7 @@ import type { Bot } from "grammy";
 import { config } from "./config.js";
 import {
   addPendingApproval,
+  consumePhonePromptPending,
   findPendingByCorrelation,
   getBinding,
   hasAttemptedAutoBind,
@@ -260,8 +261,20 @@ async function handleClaudeStop(
   // Always 200 — Stop hooks don't gate Claude on our response, so respond
   // fast and decide about Telegram separately.
   writeJson(res, 200, { ok: true });
-  if (shouldNotifyStop(session, Date.now(), config.stopNotifyMinSeconds)) {
-    void notifyStopped(bot, session, body.last_assistant_message ?? "");
+  // A pending /say from the phone bypasses the duration filter so even sub-
+  // 30s replies make it back. The notification also gets a "Reply to /say:"
+  // prefix so it visually stands out from spontaneous turn completions.
+  const phoneDriven = consumePhonePromptPending(body.session_id);
+  if (
+    phoneDriven ||
+    shouldNotifyStop(session, Date.now(), config.stopNotifyMinSeconds)
+  ) {
+    void notifyStopped(
+      bot,
+      session,
+      body.last_assistant_message ?? "",
+      phoneDriven,
+    );
   }
 }
 
