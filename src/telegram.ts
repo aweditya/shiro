@@ -5,9 +5,10 @@ import {
   getActiveSessions,
   getPendingApproval,
   getPendingApprovals,
+  renameSession,
   resolvePendingApproval,
 } from "./state.js";
-import type { PendingApproval } from "./types.js";
+import type { PendingApproval, Session } from "./types.js";
 
 export function createBot(): Bot {
   const bot = new Bot(config.botToken);
@@ -31,6 +32,7 @@ export function createBot(): Bot {
         "/pending — re-show unresolved approval requests",
         "/approveall — approve everything pending",
         "/denyall — deny everything pending",
+        "/rename <short_id> <label> — rename a session",
       ].join("\n"),
     );
   });
@@ -47,7 +49,12 @@ export function createBot(): Bot {
       lines.push("Active sessions:");
       for (const s of sessions) {
         const ago = formatAge(Date.now() - s.lastSeen);
-        lines.push(`• [${agentTag(s.agent)}] ${s.label} (${ago} ago)`);
+        const task = s.currentTask
+          ? ` — ${truncate(s.currentTask, 60)}`
+          : "";
+        lines.push(
+          `• [${agentTag(s.agent)}] ${shortId(s.id)} ${s.label} (${ago} ago)${task}`,
+        );
       }
     }
     if (pending.length > 0) {
@@ -63,11 +70,28 @@ export function createBot(): Bot {
       await ctx.reply("No active sessions.");
       return;
     }
-    const lines = sessions.map((s) => {
-      const ago = formatAge(Date.now() - s.lastSeen);
-      return `• [${agentTag(s.agent)}] ${s.label} — ${ago} ago\n  ${s.cwd}`;
-    });
-    await ctx.reply(lines.join("\n"));
+    const lines = sessions.map((s) => renderSessionLine(s));
+    await ctx.reply(lines.join("\n\n"));
+  });
+
+  bot.command("rename", async (ctx) => {
+    const args = ctx.match?.trim() ?? "";
+    const [id, ...rest] = args.split(/\s+/);
+    const label = rest.join(" ").trim();
+    if (!id || !label) {
+      await ctx.reply("Usage: /rename <short_id> <new_label>");
+      return;
+    }
+    const result = renameSession(id, label);
+    if (!result.ok) {
+      await ctx.reply(
+        result.reason === "not_found"
+          ? `No session matching ${id}.`
+          : `Short id ${id} matches multiple sessions — use more characters.`,
+      );
+      return;
+    }
+    await ctx.reply(`Renamed ${shortId(result.session.id)} to ${result.session.label}.`);
   });
 
   bot.command("pending", async (ctx) => {
@@ -237,12 +261,18 @@ async function editResolvedMessage(
 export function renderApprovalMessage(approval: PendingApproval): string {
   const label = cwdLabel(approval.cwd);
   const toolSummary = summarizeTool(approval.toolName, approval.toolInput);
-  return [
+  const lines = [
     `<b>[${agentTag(approval.agent)}]</b> <code>${escapeHtml(label)}</code>`,
+  ];
+  if (approval.task) {
+    lines.push(`<i>Task: ${escapeHtml(truncate(approval.task, 200))}</i>`);
+  }
+  lines.push(
     `<i>Permission needed: ${escapeHtml(approval.toolName)}</i>`,
     "",
     `<pre>${escapeHtml(toolSummary)}</pre>`,
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 export function renderResolvedMessage(
@@ -327,6 +357,22 @@ function agentTag(agent: "claude" | "codex"): string {
   return agent === "claude" ? "Claude" : "Codex";
 }
 
+export function shortId(sessionId: string): string {
+  return sessionId.slice(0, 6);
+}
+
+export function renderSessionLine(s: Session): string {
+  const ago = formatAge(Date.now() - s.lastSeen);
+  const parts = [
+    `• [${agentTag(s.agent)}] ${shortId(s.id)} ${s.label} — ${ago} ago`,
+    `  ${s.cwd}`,
+  ];
+  if (s.currentTask) {
+    parts.push(`  Task: ${truncate(s.currentTask, 120)}`);
+  }
+  return parts.join("\n");
+}
+
 export function cwdLabel(cwd: string): string {
   const parts = cwd.split("/").filter(Boolean);
   if (parts.length <= 2) return cwd;
@@ -359,7 +405,7 @@ export function summarizeTool(
   }
 }
 
-function truncate(s: string, max: number): string {
+export function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return `${s.slice(0, max)}\n... [truncated ${s.length - max} chars]`;
 }

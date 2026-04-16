@@ -78,6 +78,20 @@ Add to `~/.claude/settings.json` (replace `<SHIRO_SHARED_SECRET>` with the value
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:7777/hooks/claude/userprompt",
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer <SHIRO_SHARED_SECRET>"
+            }
+          }
+        ]
+      }
     ]
   }
 }
@@ -85,7 +99,9 @@ Add to `~/.claude/settings.json` (replace `<SHIRO_SHARED_SECRET>` with the value
 
 Run `chmod 600 ~/.claude/settings.json` so other users can't read the secret. Open a new Claude Code session and the hook will route permission requests to Telegram.
 
-The `PostToolUse` hook is optional but recommended: it lets Shiro update a stale Telegram message to "Approved in terminal" when you approve from your laptop (instead of leaving it at "No Telegram response").
+The `PostToolUse` and `UserPromptSubmit` hooks are optional but recommended:
+- `PostToolUse` lets Shiro update a stale message to "Approved in terminal" when you approve from your laptop (instead of leaving it at "No Telegram response").
+- `UserPromptSubmit` captures your latest prompt as the session's current task, so approval notifications and `/status` / `/sessions` can show what each session is actually doing.
 
 ## Codex
 
@@ -128,6 +144,7 @@ The shell bridge sources Shiro's `.env` to pick up `SHIRO_SHARED_SECRET` and aut
 | `/pending` | Re-show any unresolved approval requests |
 | `/approveall` | Approve everything pending |
 | `/denyall` | Deny everything pending |
+| `/rename <short_id> <label>` | Rename a session (short_id is the 6-char prefix shown in `/sessions`) |
 
 Approval messages include inline **Approve** / **Deny** buttons — just tap.
 

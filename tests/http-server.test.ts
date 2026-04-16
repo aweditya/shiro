@@ -7,6 +7,7 @@ import { config } from "../src/config.js";
 import { createHttpServer } from "../src/http-server.js";
 import {
   __resetStateForTests,
+  getActiveSessions,
   getPendingApprovals,
   resolvePendingApproval,
 } from "../src/state.js";
@@ -312,6 +313,68 @@ describe("POST /hooks/claude/posttool", () => {
     });
     assert.equal(postRes.status, 200);
     assert.equal(calls.editMessageText.length, 0);
+  });
+});
+
+describe("POST /hooks/claude/userprompt", () => {
+  it("stores the prompt as the session's currentTask", async () => {
+    const res = await fetch(`${baseUrl}/hooks/claude/userprompt`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-prompt",
+        cwd: "/tmp/proj",
+        hook_event_name: "UserPromptSubmit",
+        prompt: "refactor auth middleware",
+      }),
+    });
+    assert.equal(res.status, 200);
+    const [s] = getActiveSessions(60);
+    assert.equal(s?.id, "s-prompt");
+    assert.equal(s?.currentTask, "refactor auth middleware");
+  });
+
+  it("returns 400 on invalid payload", async () => {
+    const res = await fetch(`${baseUrl}/hooks/claude/userprompt`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: "s1" }),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("surfaces the captured task on subsequent PermissionRequest messages", async () => {
+    await fetch(`${baseUrl}/hooks/claude/userprompt`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-chained",
+        cwd: "/tmp",
+        hook_event_name: "UserPromptSubmit",
+        prompt: "write the test harness",
+      }),
+    });
+
+    const pending = fetch(`${baseUrl}/hooks/claude/permission`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s-chained",
+        cwd: "/tmp",
+        hook_event_name: "PermissionRequest",
+        tool_name: "Bash",
+        tool_input: { command: "ls" },
+      }),
+    });
+    await waitFor(() => getPendingApprovals().length === 1);
+    await waitFor(() => calls.sendMessage.length === 1);
+    assert.match(
+      calls.sendMessage[0]!.text,
+      /Task: write the test harness/,
+    );
+    const [a] = getPendingApprovals();
+    resolvePendingApproval(a!.id, { approved: true });
+    await pending;
   });
 });
 

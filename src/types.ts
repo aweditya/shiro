@@ -6,6 +6,8 @@ export interface Session {
   label: string;
   cwd: string;
   lastSeen: number;
+  /** Most recent user prompt, captured via UserPromptSubmit. */
+  currentTask?: string;
 }
 
 export interface ApprovalDecision {
@@ -24,6 +26,8 @@ export interface PendingApproval {
   resolve: (decision: ApprovalDecision) => void;
   telegramChatId?: number;
   telegramMessageId?: number;
+  /** Snapshot of the session's currentTask at approval creation time. */
+  task?: string;
 }
 
 export interface ClaudePermissionRequestInput {
@@ -49,4 +53,11 @@ export interface ClaudePostToolUseInput {
   tool_name: string;
   tool_input: Record<string, unknown>;
   tool_response?: Record<string, unknown>;
+}
+
+export interface ClaudeUserPromptSubmitInput {
+  session_id: string;
+  cwd: string;
+  hook_event_name: "UserPromptSubmit";
+  prompt: string;
 }

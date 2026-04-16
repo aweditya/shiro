@@ -8,11 +8,14 @@ import {
   renderApprovalMessage,
   renderResolvedLocallyMessage,
   renderResolvedMessage,
+  renderSessionLine,
   renderTimeoutMessage,
   renderToolRanMessage,
+  shortId,
   summarizeTool,
+  truncate,
 } from "../src/telegram.js";
-import type { PendingApproval } from "../src/types.js";
+import type { PendingApproval, Session } from "../src/types.js";
 
 function makeApproval(overrides: Partial<PendingApproval> = {}): PendingApproval {
   return {
@@ -170,5 +173,73 @@ describe("render* functions", () => {
   it("uses Codex tag for codex agent", () => {
     const msg = renderApprovalMessage(makeApproval({ agent: "codex" }));
     assert.match(msg, /Codex/);
+  });
+
+  it("renderApprovalMessage includes the Task line when approval has one", () => {
+    const msg = renderApprovalMessage(
+      makeApproval({ task: "add PostToolUse correlation" }),
+    );
+    assert.match(msg, /Task: add PostToolUse correlation/);
+  });
+
+  it("renderApprovalMessage omits the Task line when absent", () => {
+    const msg = renderApprovalMessage(makeApproval({ task: undefined }));
+    assert.doesNotMatch(msg, /Task:/);
+  });
+
+  it("renderApprovalMessage HTML-escapes the task", () => {
+    const msg = renderApprovalMessage(
+      makeApproval({ task: "<img src=x>" }),
+    );
+    assert.doesNotMatch(msg, /<img/);
+    assert.match(msg, /&lt;img/);
+  });
+});
+
+describe("shortId", () => {
+  it("returns the first 6 chars of the session id", () => {
+    assert.equal(shortId("abcdef123456"), "abcdef");
+  });
+});
+
+describe("truncate", () => {
+  it("returns the input unchanged when within limit", () => {
+    assert.equal(truncate("hi", 10), "hi");
+  });
+
+  it("truncates and annotates when longer than limit", () => {
+    const out = truncate("x".repeat(20), 5);
+    assert.ok(out.startsWith("xxxxx"));
+    assert.match(out, /truncated 15 chars/);
+  });
+});
+
+describe("renderSessionLine", () => {
+  function makeSession(overrides: Partial<Session> = {}): Session {
+    return {
+      id: "abc123def456",
+      agent: "claude",
+      label: "shiro",
+      cwd: "/Users/alice/projects/shiro",
+      lastSeen: Date.now(),
+      ...overrides,
+    };
+  }
+
+  it("includes short id, label, cwd, and age", () => {
+    const line = renderSessionLine(makeSession());
+    assert.match(line, /abc123/);
+    assert.match(line, /shiro/);
+    assert.match(line, /\/Users\/alice\/projects\/shiro/);
+    assert.match(line, /ago/);
+  });
+
+  it("shows Task line only when currentTask is set", () => {
+    const withTask = renderSessionLine(
+      makeSession({ currentTask: "writing tests" }),
+    );
+    assert.match(withTask, /Task: writing tests/);
+    const without = renderSessionLine(makeSession());
+    assert.doesNotMatch(without, /Task:/);
   });
 });

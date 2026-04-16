@@ -52,6 +52,37 @@ export function upsertSession(
   return session;
 }
 
+export function setSessionTask(sessionId: string, task: string): void {
+  const session = sessions.get(sessionId);
+  if (session) {
+    session.currentTask = task;
+    session.lastSeen = Date.now();
+  }
+}
+
+/**
+ * Override a session's label. Accepts either the full session id or any
+ * unique prefix. Returns the updated session, or an error code.
+ */
+export function renameSession(
+  idOrPrefix: string,
+  newLabel: string,
+):
+  | { ok: true; session: Session }
+  | { ok: false; reason: "not_found" | "ambiguous" } {
+  const matches: Session[] = [];
+  for (const session of sessions.values()) {
+    if (session.id === idOrPrefix || session.id.startsWith(idOrPrefix)) {
+      matches.push(session);
+    }
+  }
+  if (matches.length === 0) return { ok: false, reason: "not_found" };
+  if (matches.length > 1) return { ok: false, reason: "ambiguous" };
+  const [target] = matches as [Session];
+  target.label = newLabel;
+  return { ok: true, session: target };
+}
+
 export function getActiveSessions(staleSeconds: number): Session[] {
   const cutoff = Date.now() - staleSeconds * 1000;
   return Array.from(sessions.values()).filter((s) => s.lastSeen >= cutoff);
@@ -76,6 +107,7 @@ interface NewApprovalInput {
   toolInput: Record<string, unknown>;
   cwd: string;
   resolve: (decision: ApprovalDecision) => void;
+  task?: string;
 }
 
 export function addPendingApproval(input: NewApprovalInput): PendingApproval {
@@ -88,6 +120,7 @@ export function addPendingApproval(input: NewApprovalInput): PendingApproval {
     cwd: input.cwd,
     receivedAt: Date.now(),
     resolve: input.resolve,
+    task: input.task,
   };
   pendingApprovals.set(approval.id, approval);
   return approval;

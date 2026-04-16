@@ -7,6 +7,7 @@ import {
   findPendingByCorrelation,
   popRecentApproval,
   resolvePendingApproval,
+  setSessionTask,
   upsertSession,
 } from "./state.js";
 import {
@@ -19,6 +20,7 @@ import type {
   ApprovalDecision,
   ClaudePermissionRequestInput,
   ClaudePostToolUseInput,
+  ClaudeUserPromptSubmitInput,
   CodexPreToolUseInput,
 } from "./types.js";
 
@@ -47,6 +49,11 @@ export function createHttpServer(bot: Bot): http.Server {
 
       if (req.method === "POST" && req.url === "/hooks/claude/posttool") {
         await handleClaudePostTool(req, res, bot);
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/hooks/claude/userprompt") {
+        await handleClaudeUserPrompt(req, res);
         return;
       }
 
@@ -90,7 +97,7 @@ async function handleClaudePermission(
     return;
   }
 
-  upsertSession("claude", body.session_id, body.cwd ?? "");
+  const session = upsertSession("claude", body.session_id, body.cwd ?? "");
 
   const decision = await awaitDecision({
     res,
@@ -102,6 +109,7 @@ async function handleClaudePermission(
       toolName: body.tool_name,
       toolInput: body.tool_input ?? {},
       cwd: body.cwd ?? "",
+      task: session.currentTask,
     },
   });
 
@@ -170,6 +178,20 @@ async function handleClaudePostTool(
   writeJson(res, 200, { ok: true });
 }
 
+async function handleClaudeUserPrompt(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = await readJson<ClaudeUserPromptSubmitInput>(req);
+  if (!body || !body.session_id || typeof body.prompt !== "string") {
+    writeJson(res, 400, { error: "invalid_payload" });
+    return;
+  }
+  upsertSession("claude", body.session_id, body.cwd ?? "");
+  setSessionTask(body.session_id, body.prompt);
+  writeJson(res, 200, { ok: true });
+}
+
 async function handleCodexPreTool(
   req: IncomingMessage,
   res: ServerResponse,
@@ -181,7 +203,7 @@ async function handleCodexPreTool(
     return;
   }
 
-  upsertSession("codex", body.session_id, body.cwd ?? "");
+  const session = upsertSession("codex", body.session_id, body.cwd ?? "");
 
   const decision = await awaitDecision({
     res,
@@ -193,6 +215,7 @@ async function handleCodexPreTool(
       toolName: body.tool_name,
       toolInput: body.tool_input ?? {},
       cwd: body.cwd ?? "",
+      task: session.currentTask,
     },
   });
 
@@ -218,6 +241,7 @@ interface AwaitDecisionArgs {
     toolName: string;
     toolInput: Record<string, unknown>;
     cwd: string;
+    task?: string;
   };
 }
 
@@ -238,6 +262,7 @@ function awaitDecision(args: AwaitDecisionArgs): Promise<ApprovalDecision> {
       toolName: args.approval.toolName,
       toolInput: args.approval.toolInput,
       cwd: args.approval.cwd,
+      task: args.approval.task,
       resolve: (decision) => settle(decision),
     });
 

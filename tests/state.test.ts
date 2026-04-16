@@ -11,7 +11,9 @@ import {
   getPendingApprovals,
   popRecentApproval,
   pruneStaleSessions,
+  renameSession,
   resolvePendingApproval,
+  setSessionTask,
   upsertSession,
 } from "../src/state.js";
 import type { ApprovalDecision } from "../src/types.js";
@@ -293,6 +295,70 @@ describe("attachTelegramMessage", () => {
 
   it("is a no-op for unknown approval ids", () => {
     assert.doesNotThrow(() => attachTelegramMessage("nope", 1, 2));
+  });
+});
+
+describe("setSessionTask", () => {
+  it("stores the prompt on the session and bumps lastSeen", () => {
+    mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    upsertSession("claude", "s1", "/a");
+    mock.timers.setTime(1_000_500);
+    setSessionTask("s1", "refactor the auth middleware");
+    const [session] = getActiveSessions(60);
+    assert.equal(session?.currentTask, "refactor the auth middleware");
+    assert.equal(session?.lastSeen, 1_000_500);
+    mock.timers.reset();
+  });
+
+  it("is a no-op for unknown session ids", () => {
+    assert.doesNotThrow(() => setSessionTask("nope", "x"));
+  });
+});
+
+describe("renameSession", () => {
+  it("renames by full id", () => {
+    upsertSession("claude", "abc123def", "/a");
+    const result = renameSession("abc123def", "my-project");
+    assert.ok(result.ok);
+    assert.equal(result.ok && result.session.label, "my-project");
+  });
+
+  it("renames by unique prefix", () => {
+    upsertSession("claude", "abc123def", "/a");
+    upsertSession("claude", "xyz987qrs", "/b");
+    const result = renameSession("abc", "renamed");
+    assert.ok(result.ok);
+    assert.equal(result.ok && result.session.id, "abc123def");
+  });
+
+  it("returns not_found when no match", () => {
+    upsertSession("claude", "abc123def", "/a");
+    const result = renameSession("nothing", "x");
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.reason, "not_found");
+  });
+
+  it("returns ambiguous when prefix matches multiple sessions", () => {
+    upsertSession("claude", "abc111", "/a");
+    upsertSession("claude", "abc222", "/b");
+    const result = renameSession("abc", "x");
+    assert.equal(result.ok, false);
+    assert.equal(!result.ok && result.reason, "ambiguous");
+  });
+});
+
+describe("addPendingApproval task snapshot", () => {
+  it("carries the optional task through to the approval", () => {
+    const a = addPendingApproval({
+      agent: "claude",
+      sessionId: "s1",
+      toolName: "Bash",
+      toolInput: {},
+      cwd: "/a",
+      task: "the current task",
+      resolve: () => {},
+    });
+    assert.equal(a.task, "the current task");
   });
 });
 
