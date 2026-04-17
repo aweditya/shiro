@@ -69,7 +69,8 @@ export interface UserPromptSubmitInput {
   prompt: string;
 }
 
-export interface ClaudeStopFailureInput {
+/** Shared by Claude + Codex — both fire the same shape for StopFailure / error hooks. */
+export interface StopFailureInput {
   session_id: string;
   cwd: string;
   hook_event_name: "StopFailure";
@@ -78,10 +79,11 @@ export interface ClaudeStopFailureInput {
   error_message: string;
 }
 
-export interface ClaudeStopInput {
+/** Shared by Claude + Codex — both fire the same shape for Stop / turn-completion hooks. */
+export interface StopInput {
   session_id: string;
   cwd: string;
   hook_event_name: "Stop";
-  /** Final assistant text for the turn — included by Claude so hooks don't have to read the transcript file. */
+  /** Final assistant text for the turn — included so hooks don't have to read the transcript file. */
   last_assistant_message?: string;
 }

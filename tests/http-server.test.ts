@@ -672,6 +672,95 @@ describe("POST /hooks/claude/stop", () => {
   });
 });
 
+describe("POST /hooks/codex/stop", () => {
+  it("notifies on Stop with last_assistant_message and current task", async () => {
+    await fetch(`${baseUrl}/hooks/codex/userprompt`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "codex-stop",
+        cwd: "/tmp/proj",
+        hook_event_name: "UserPromptSubmit",
+        prompt: "implement the API client",
+      }),
+    });
+    const res = await fetch(`${baseUrl}/hooks/codex/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "codex-stop",
+        cwd: "/tmp/proj",
+        hook_event_name: "Stop",
+        last_assistant_message: "API client implemented and tested.",
+      }),
+    });
+    assert.equal(res.status, 200);
+    await waitFor(() => calls.sendMessage.length === 1);
+    const [sent] = calls.sendMessage;
+    assert.match(sent!.text, /Done/);
+    assert.match(sent!.text, /Task: implement the API client/);
+    assert.match(sent!.text, /API client implemented and tested\./);
+  });
+
+  it("tracks the session as codex agent", async () => {
+    const res = await fetch(`${baseUrl}/hooks/codex/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "codex-track",
+        cwd: "/tmp/foo",
+        hook_event_name: "Stop",
+      }),
+    });
+    assert.equal(res.status, 200);
+    const active = getActiveSessions(60);
+    const tracked = active.find((s) => s.id === "codex-track");
+    assert.ok(tracked);
+    assert.equal(tracked!.agent, "codex");
+  });
+
+  it("returns 400 on missing session_id", async () => {
+    const res = await fetch(`${baseUrl}/hooks/codex/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/tmp",
+        hook_event_name: "Stop",
+      }),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("requires auth", async () => {
+    const res = await fetch(`${baseUrl}/hooks/codex/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "s",
+        cwd: "/tmp",
+        hook_event_name: "Stop",
+      }),
+    });
+    assert.equal(res.status, 401);
+  });
+
+  it("does not attempt tmux auto-bind (codex-only)", async () => {
+    // Codex stop should NOT call tryAutoBind — that's Claude-only for now.
+    // We verify by checking that no auto-bind was attempted for this session.
+    await fetch(`${baseUrl}/hooks/codex/stop`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: "codex-no-bind",
+        cwd: "/tmp/proj",
+        hook_event_name: "Stop",
+        last_assistant_message: "done",
+      }),
+    });
+    assert.equal(hasAttemptedAutoBind("codex-no-bind"), false);
+  });
+});
+
 describe("tryAutoBind", () => {
   function fakeLister(panes: TmuxPane[]): () => Promise<TmuxPane[]> {
     return async () => panes;

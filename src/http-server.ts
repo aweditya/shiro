@@ -29,10 +29,10 @@ import type {
   ApprovalDecision,
   ClaudePermissionRequestInput,
   ClaudePostToolUseInput,
-  ClaudeStopFailureInput,
-  ClaudeStopInput,
   CodexPreToolUseInput,
   Session,
+  StopFailureInput,
+  StopInput,
   UserPromptSubmitInput,
 } from "./types.js";
 
@@ -70,12 +70,12 @@ export function createHttpServer(bot: Bot): http.Server {
       }
 
       if (req.method === "POST" && req.url === "/hooks/claude/stopfailure") {
-        await handleClaudeStopFailure(req, res, bot);
+        await handleStopFailure("claude", req, res, bot);
         return;
       }
 
       if (req.method === "POST" && req.url === "/hooks/claude/stop") {
-        await handleClaudeStop(req, res, bot);
+        await handleStop("claude", req, res, bot);
         return;
       }
 
@@ -86,6 +86,11 @@ export function createHttpServer(bot: Bot): http.Server {
 
       if (req.method === "POST" && req.url === "/hooks/codex/userprompt") {
         await handleUserPrompt("codex", req, res);
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/hooks/codex/stop") {
+        await handleStop("codex", req, res, bot);
         return;
       }
 
@@ -225,18 +230,19 @@ async function handleUserPrompt(
   writeJson(res, 200, { ok: true });
 }
 
-async function handleClaudeStopFailure(
+async function handleStopFailure(
+  agent: AgentKind,
   req: IncomingMessage,
   res: ServerResponse,
   bot: Bot,
 ): Promise<void> {
-  const body = await readJson<ClaudeStopFailureInput>(req);
+  const body = await readJson<StopFailureInput>(req);
   if (!body || !body.session_id || !body.error_type) {
     writeJson(res, 400, { error: "invalid_payload" });
     return;
   }
-  const session = upsertSession("claude", body.session_id, body.cwd ?? "");
-  void tryAutoBind(body.session_id, body.cwd ?? "");
+  const session = upsertSession(agent, body.session_id, body.cwd ?? "");
+  if (agent === "claude") void tryAutoBind(body.session_id, body.cwd ?? "");
   void notifyStopFailure(
     bot,
     session,
@@ -246,19 +252,20 @@ async function handleClaudeStopFailure(
   writeJson(res, 200, { ok: true });
 }
 
-async function handleClaudeStop(
+async function handleStop(
+  agent: AgentKind,
   req: IncomingMessage,
   res: ServerResponse,
   bot: Bot,
 ): Promise<void> {
-  const body = await readJson<ClaudeStopInput>(req);
+  const body = await readJson<StopInput>(req);
   if (!body || !body.session_id) {
     writeJson(res, 400, { error: "invalid_payload" });
     return;
   }
-  const session = upsertSession("claude", body.session_id, body.cwd ?? "");
-  void tryAutoBind(body.session_id, body.cwd ?? "");
-  // Always 200 — Stop hooks don't gate Claude on our response, so respond
+  const session = upsertSession(agent, body.session_id, body.cwd ?? "");
+  if (agent === "claude") void tryAutoBind(body.session_id, body.cwd ?? "");
+  // Always 200 — Stop hooks don't gate the agent on our response, so respond
   // fast and decide about Telegram separately.
   writeJson(res, 200, { ok: true });
   // A pending /say from the phone bypasses the duration filter so even sub-
@@ -284,8 +291,8 @@ async function handleClaudeStop(
  * exactly one match — multiple matches need manual /bind to disambiguate.
  *
  * Cached by session id so we don't reshell on every hook. Auto-discovery is
- * Claude-only for v1; Codex injection works the same way but its response
- * routing isn't built yet (no Stop hook equivalent).
+ * Claude-only for now; Codex has a Stop hook but the two-way /say flow
+ * hasn't been wired up yet.
  *
  * `listPanes` is injectable so tests can drive each branch without shelling
  * out to a real tmux server.

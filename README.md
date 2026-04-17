@@ -170,11 +170,22 @@ Create `~/.codex/hooks.json` (update the path to match where you cloned Shiro):
         }
       ]
     }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "/absolute/path/to/shiro/hooks/codex-stop-hook.sh",
+          "timeout": 3
+        }
+      ]
+    }
   ]
 }
 ```
 
-Both shell bridges source Shiro's `.env` to pick up `SHIRO_SHARED_SECRET` and send the `Authorization` header automatically. `codex-hook.sh` auto-approves common read-only commands (`ls`, `cat`, `git status`, etc.) locally, so Telegram only pings you for commands that actually matter. `codex-userprompt-hook.sh` is optional — it captures your latest prompt as the session's current task (mirrors the Claude side) and fails open if Shiro is unreachable.
+All shell bridges source Shiro's `.env` to pick up `SHIRO_SHARED_SECRET` and send the `Authorization` header automatically. `codex-hook.sh` auto-approves common read-only commands (`ls`, `cat`, `git status`, etc.) locally, so Telegram only pings you for commands that actually matter. `codex-userprompt-hook.sh` and `codex-stop-hook.sh` are optional but recommended — they capture the session's current task and turn completions respectively (mirroring the Claude side), and both fail open if Shiro is unreachable.
 
 ## Telegram commands
 
@@ -200,7 +211,7 @@ Approval messages include inline **Approve** / **Deny** buttons — just tap.
 
 When Shiro sees a hook from a Claude session whose `cwd` matches exactly one tmux pane running an agent, it auto-binds. Use `/bindings` to inspect, `/bind` to override, `/unbind` to clear. Once bound, `/say <short_id> <message>` sends the message and Claude's reply comes back via the Stop hook prefixed with **Reply to /say** so it stands out from spontaneous turn completions. The Stop hook bypasses the usual duration filter for phone-driven turns.
 
-Codex two-way support is deferred — Codex doesn't have a Stop-hook equivalent yet, so there's no path to route the reply back.
+Codex `/say` support is deferred — while Codex now has a Stop hook (used for turn-completion notifications), the two-way prompt injection flow hasn't been wired up yet.
 
 ## How networking works
 
